@@ -496,27 +496,36 @@
         }
 
         .carousel-nav {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            transform: translateY(-50%);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-top: var(--space-4);
-            padding: var(--space-3) 0;
+            pointer-events: none;
+            padding: 0 var(--space-4);
         }
 
         .carousel-btn {
-            background: var(--color-primary);
+            background: var(--color-gray-500);
             color: white;
             border: none;
-            padding: var(--space-2) var(--space-4);
-            border-radius: var(--border-radius);
+            width: 40px;
+            height: 40px;
+            border-radius: 2px;
             cursor: pointer;
-            font-size: var(--font-size-sm);
-            font-weight: 500;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             transition: all 0.2s ease;
+            pointer-events: all;
         }
 
         .carousel-btn:hover:not(:disabled) {
-            background: var(--color-primary-light);
+            background: var(--color-gray-600);
         }
 
         .carousel-btn:disabled {
@@ -524,10 +533,24 @@
             cursor: not-allowed;
         }
 
-        .carousel-counter {
-            font-size: var(--font-size-sm);
-            color: var(--color-gray-600);
-            font-weight: 500;
+        .carousel-dots {
+            display: flex;
+            justify-content: center;
+            gap: var(--space-2);
+            margin-top: var(--space-4);
+        }
+
+        .carousel-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--color-gray-300);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .carousel-dot.active {
+            background: var(--color-gray-700);
         }
 
         .preview-actions {
@@ -773,13 +796,13 @@
             <div class="preview-modal-body">
                 <div class="banner-carousel" id="bannerCarousel">
                     <!-- Banner items will be inserted here -->
-                </div>
-                <div class="carousel-nav">
-                    <button class="carousel-btn" id="prevBtn" onclick="navigateCarousel(-1)">← Previous</button>
-                    <div class="carousel-counter">
-                        <span id="currentSlide">1</span> of <span id="totalSlides">1</span>
+                    <div class="carousel-nav">
+                        <button class="carousel-btn" id="prevBtn" onclick="navigateCarousel(-1)">◀</button>
+                        <button class="carousel-btn" id="nextBtn" onclick="navigateCarousel(1)">▶</button>
                     </div>
-                    <button class="carousel-btn" id="nextBtn" onclick="navigateCarousel(1)">Next →</button>
+                </div>
+                <div class="carousel-dots" id="carouselDots">
+                    <!-- Dots will be inserted here -->
                 </div>
                 <div class="preview-actions" id="previewActions">
                     <!-- Actions will be inserted here -->
@@ -1404,6 +1427,7 @@
     function showBannerPreview(word, index) {
         const modal = document.getElementById('previewModal');
         const carousel = document.getElementById('bannerCarousel');
+        const dots = document.getElementById('carouselDots');
         const title = document.getElementById('previewTitle');
         const actions = document.getElementById('previewActions');
         
@@ -1416,7 +1440,8 @@
         currentCarouselBanners = bannersWithTypo;
         currentCarouselIndex = 0;
         
-        carousel.innerHTML = bannersWithTypo.map((banner, idx) => `
+        // Create banner items
+        const bannerItemsHTML = bannersWithTypo.map((banner, idx) => `
             <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
                 <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
                 <div class="banner-preview-name">${banner.fileName}</div>
@@ -1425,8 +1450,15 @@
             </div>
         `).join('');
         
-        document.getElementById('currentSlide').textContent = '1';
-        document.getElementById('totalSlides').textContent = bannersWithTypo.length;
+        // Insert banner items before the nav buttons
+        const navButtons = carousel.querySelector('.carousel-nav');
+        carousel.innerHTML = bannerItemsHTML;
+        carousel.appendChild(navButtons);
+        
+        // Create dots
+        dots.innerHTML = bannersWithTypo.map((_, idx) => 
+            `<div class="carousel-dot ${idx === 0 ? 'active' : ''}" onclick="goToSlide(${idx})"></div>`
+        ).join('');
         
         updateCarouselButtons();
         
@@ -1449,12 +1481,20 @@
             return;
         }
         
+        goToSlide(newIndex);
+    }
+
+    function goToSlide(index) {
         const items = document.querySelectorAll('.banner-preview-item');
-        items[currentCarouselIndex].classList.remove('active');
-        items[newIndex].classList.add('active');
+        const dots = document.querySelectorAll('.carousel-dot');
         
-        currentCarouselIndex = newIndex;
-        document.getElementById('currentSlide').textContent = currentCarouselIndex + 1;
+        items[currentCarouselIndex].classList.remove('active');
+        dots[currentCarouselIndex].classList.remove('active');
+        
+        items[index].classList.add('active');
+        dots[index].classList.add('active');
+        
+        currentCarouselIndex = index;
         
         updateCarouselButtons();
     }
