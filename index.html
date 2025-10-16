@@ -464,28 +464,70 @@
             padding: var(--space-4);
         }
 
-        .banner-preview-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: var(--space-4);
+        .banner-carousel {
+            position: relative;
             margin-bottom: var(--space-4);
         }
 
         .banner-preview-item {
+            display: none;
             text-align: center;
         }
 
+        .banner-preview-item.active {
+            display: block;
+        }
+
         .banner-preview-image {
-            width: 100%;
+            max-width: 100%;
+            max-height: 500px;
             height: auto;
             border: 1px solid var(--color-gray-200);
             border-radius: var(--border-radius);
-            margin-bottom: var(--space-2);
+            margin: 0 auto var(--space-2);
+            display: block;
         }
 
         .banner-preview-name {
-            font-size: var(--font-size-xs);
+            font-size: var(--font-size-sm);
+            color: var(--color-gray-900);
+            font-weight: 600;
+            margin-bottom: var(--space-2);
+        }
+
+        .carousel-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: var(--space-4);
+            padding: var(--space-3) 0;
+        }
+
+        .carousel-btn {
+            background: var(--color-primary);
+            color: white;
+            border: none;
+            padding: var(--space-2) var(--space-4);
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: var(--font-size-sm);
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .carousel-btn:hover:not(:disabled) {
+            background: var(--color-primary-light);
+        }
+
+        .carousel-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .carousel-counter {
+            font-size: var(--font-size-sm);
             color: var(--color-gray-600);
+            font-weight: 500;
         }
 
         .preview-actions {
@@ -729,8 +771,15 @@
                 <button class="preview-modal-close" onclick="closePreviewModal()">&times;</button>
             </div>
             <div class="preview-modal-body">
-                <div class="banner-preview-grid" id="bannerPreviewGrid">
-                    <!-- Banner previews will be inserted here -->
+                <div class="banner-carousel" id="bannerCarousel">
+                    <!-- Banner items will be inserted here -->
+                </div>
+                <div class="carousel-nav">
+                    <button class="carousel-btn" id="prevBtn" onclick="navigateCarousel(-1)">← Previous</button>
+                    <div class="carousel-counter">
+                        <span id="currentSlide">1</span> of <span id="totalSlides">1</span>
+                    </div>
+                    <button class="carousel-btn" id="nextBtn" onclick="navigateCarousel(1)">Next →</button>
                 </div>
                 <div class="preview-actions" id="previewActions">
                     <!-- Actions will be inserted here -->
@@ -748,6 +797,8 @@
         rejectedWords: new Set()
     };
     let spellChecker = null;
+    let currentCarouselIndex = 0;
+    let currentCarouselBanners = [];
     
     // IAB Specifications
     const IAB_SPECS = {
@@ -769,24 +820,20 @@
     };
 
     // Initialize
-        document.addEventListener('DOMContentLoaded', async () => {
-            await initializeSpellChecker();
-            setupEventListeners();
-        });
+    document.addEventListener('DOMContentLoaded', async () => {
+        await initializeSpellChecker();
+        setupEventListeners();
+    });
 
-        async function initializeSpellChecker() {
-        // Try to load a comprehensive dictionary from CDN
+    async function initializeSpellChecker() {
         try {
-            // Load Typo.js library for spell checking
             const script = document.createElement('script');
             script.src = 'https://cdn.jsdelivr.net/gh/cfinke/Typo.js@master/typo/typo.js';
             document.head.appendChild(script);
             
             await new Promise((resolve) => {
                 script.onload = async () => {
-                    // Load dictionary files for US English
                     try {
-                        // Fetch dictionary files
                         const [affResponse, dicResponse] = await Promise.all([
                             fetch('https://cdn.jsdelivr.net/gh/wooorm/dictionaries@main/dictionaries/en/index.aff'),
                             fetch('https://cdn.jsdelivr.net/gh/wooorm/dictionaries@main/dictionaries/en/index.dic')
@@ -796,7 +843,6 @@
                             const affData = await affResponse.text();
                             const dicData = await dicResponse.text();
                             
-                            // Initialize Typo.js with the dictionary
                             window.typoChecker = new Typo("en_US", affData, dicData);
                             console.log('Typo.js spell checker initialized with full English dictionary');
                         } else {
@@ -820,40 +866,31 @@
             initializeFallbackSpellChecker();
         }
 
-        // Create spell checker wrapper
         spellChecker = {
             check: function(word) {
                 const cleaned = word.toLowerCase().replace(/[^a-z]/g, '');
                 
-                // Skip short words and numbers
                 if (cleaned.length <= 2) return true;
                 if (/^\d+$/.test(word)) return true;
                 
-                // Check session memory
                 if (sessionMemory.approvedWords.has(cleaned)) return true;
                 if (sessionMemory.rejectedWords.has(cleaned)) return false;
                 
-                // Use Typo.js if available
                 if (window.typoChecker) {
                     return window.typoChecker.check(cleaned);
                 }
                 
-                // Use fallback dictionary if Typo.js isn't available
                 if (window.fallbackDictionary) {
                     return window.fallbackDictionary.has(cleaned);
                 }
                 
-                // Default to accepting the word if no checker is available
                 return true;
             }
         };
     }
     
     function initializeFallbackSpellChecker() {
-        // Minimal fallback dictionary with very common words only
-        // This ensures basic functionality if CDN resources fail
         window.fallbackDictionary = new Set([
-            // Only the most common English words
             'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as',
             'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 
             'can', 'could', 'should', 'may', 'might', 'must', 'shall', 'get', 'make', 'go', 'take', 'come', 'see',
@@ -863,7 +900,6 @@
             'public', 'bad', 'same', 'able', 'time', 'year', 'years', 'work', 'day', 'days', 'way', 'people',
             'man', 'men', 'woman', 'women', 'child', 'children', 'thing', 'things', 'life', 'world', 'hand',
             'part', 'place', 'case', 'point', 'company', 'number', 'group', 'problem', 'fact',
-            // Add common marketing/web terms
             'online', 'digital', 'internet', 'website', 'web', 'email', 'click', 'download', 'upload', 'share',
             'link', 'video', 'image', 'social', 'media', 'network', 'sale', 'offer', 'discount', 'price', 'shop',
             'store', 'product', 'service', 'customer', 'brand', 'quality', 'value', 'save', 'now', 'today',
@@ -876,44 +912,43 @@
         console.log('Using fallback spell checker with limited dictionary');
     }
 
-async function detectTextWithGoogleVision(imageDataUrl) {
-    try {
-        const base64Image = imageDataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
-        
-        // This should be calling YOUR Netlify function
-        const response = await fetch('/.netlify/functions/detect-text', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: base64Image })
-        });
-        
-        if (!response.ok) {
-            console.error('Function error:', response.status);
+    async function detectTextWithGoogleVision(imageDataUrl) {
+        try {
+            const base64Image = imageDataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
+            
+            const response = await fetch('/.netlify/functions/detect-text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: base64Image })
+            });
+            
+            if (!response.ok) {
+                console.error('Function error:', response.status);
+                return { text: '', confidence: 0 };
+            }
+            
+            const data = await response.json();
+            
+            if (data.responses && data.responses[0]) {
+                const response = data.responses[0];
+                
+                if (response.fullTextAnnotation) {
+                    const fullText = response.fullTextAnnotation.text;
+                    console.log('Detected text:', fullText);
+                    return {
+                        text: fullText,
+                        confidence: 85
+                    };
+                }
+            }
+            
+            return { text: '', confidence: 0 };
+            
+        } catch (error) {
+            console.error('Error calling text detection:', error);
             return { text: '', confidence: 0 };
         }
-        
-        const data = await response.json();
-        
-        if (data.responses && data.responses[0]) {
-            const response = data.responses[0];
-            
-            if (response.fullTextAnnotation) {
-                const fullText = response.fullTextAnnotation.text;
-                console.log('Detected text:', fullText);
-                return {
-                    text: fullText,
-                    confidence: 85
-                };
-            }
-        }
-        
-        return { text: '', confidence: 0 };
-        
-    } catch (error) {
-        console.error('Error calling text detection:', error);
-        return { text: '', confidence: 0 };
     }
-}
 
     function setupEventListeners() {
         const uploadArea = document.getElementById('uploadArea');
@@ -1368,7 +1403,7 @@ async function detectTextWithGoogleVision(imageDataUrl) {
 
     function showBannerPreview(word, index) {
         const modal = document.getElementById('previewModal');
-        const grid = document.getElementById('bannerPreviewGrid');
+        const carousel = document.getElementById('bannerCarousel');
         const title = document.getElementById('previewTitle');
         const actions = document.getElementById('previewActions');
         
@@ -1378,14 +1413,22 @@ async function detectTextWithGoogleVision(imageDataUrl) {
             banner.typos && banner.typos.includes(word)
         );
         
-        grid.innerHTML = bannersWithTypo.map(banner => `
-            <div class="banner-preview-item">
+        currentCarouselBanners = bannersWithTypo;
+        currentCarouselIndex = 0;
+        
+        carousel.innerHTML = bannersWithTypo.map((banner, idx) => `
+            <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
                 <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
                 <div class="banner-preview-name">${banner.fileName}</div>
                 ${banner.iabStandard ? `<div class="iab-badge" style="margin-top: 4px;">${banner.iabStandard}</div>` : ''}
-                ${banner.detectedText ? `<div style="margin-top: 8px; padding: 8px; background: #f3f4f6; border-radius: 4px; font-size: 11px; color: #4b5563; text-align: left;"><strong>Detected text:</strong> "${banner.detectedText.substring(0, 100)}${banner.detectedText.length > 100 ? '...' : ''}"</div>` : ''}
+                ${banner.detectedText ? `<div style="margin-top: 8px; padding: 8px; background: #f3f4f6; border-radius: 4px; font-size: 11px; color: #4b5563; text-align: left;"><strong>Detected text:</strong> "${banner.detectedText.substring(0, 150)}${banner.detectedText.length > 150 ? '...' : ''}"</div>` : ''}
             </div>
         `).join('');
+        
+        document.getElementById('currentSlide').textContent = '1';
+        document.getElementById('totalSlides').textContent = bannersWithTypo.length;
+        
+        updateCarouselButtons();
         
         actions.innerHTML = `
             <button class="btn btn-success" onclick="approveWordFromPreview('${word}', ${index})">
@@ -1397,6 +1440,31 @@ async function detectTextWithGoogleVision(imageDataUrl) {
         `;
         
         modal.classList.add('active');
+    }
+
+    function navigateCarousel(direction) {
+        const newIndex = currentCarouselIndex + direction;
+        
+        if (newIndex < 0 || newIndex >= currentCarouselBanners.length) {
+            return;
+        }
+        
+        const items = document.querySelectorAll('.banner-preview-item');
+        items[currentCarouselIndex].classList.remove('active');
+        items[newIndex].classList.add('active');
+        
+        currentCarouselIndex = newIndex;
+        document.getElementById('currentSlide').textContent = currentCarouselIndex + 1;
+        
+        updateCarouselButtons();
+    }
+
+    function updateCarouselButtons() {
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        
+        prevBtn.disabled = currentCarouselIndex === 0;
+        nextBtn.disabled = currentCarouselIndex === currentCarouselBanners.length - 1;
     }
 
     function closePreviewModal() {
