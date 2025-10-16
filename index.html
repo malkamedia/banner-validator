@@ -815,7 +815,7 @@ async function detectTextWithGoogleVision(imageDataUrl) {
     try {
         const base64Image = imageDataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
         
-        // Call YOUR Netlify function instead of Google directly
+        // This should be calling YOUR Netlify function
         const response = await fetch('/.netlify/functions/detect-text', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1050,7 +1050,7 @@ async function detectTextWithGoogleVision(imageDataUrl) {
                         result.hasIssues = true;
                     }
 
-                    if (!result.iabIssues.some(issue => issue.type === 'fileSize') && GOOGLE_API_KEY) {
+                    if (!result.iabIssues.some(issue => issue.type === 'fileSize')) {
                         try {
                             const { text, confidence } = await detectTextWithGoogleVision(e.target.result);
                             
