@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Banner Validator - Malka Media Group LLC</title>
+    
+    <!-- Favicons from Malka Media CDN -->
+    <link href="https://cdn.prod.website-files.com/63ed602b8bb6f01fe4678cd7/63f61f41d22be93246c43215_favicon-32x32.png" rel="shortcut icon" type="image/x-icon"/>
+    <link href="https://cdn.prod.website-files.com/63ed602b8bb6f01fe4678cd7/63f61fc551b1bc5c6514d0a1_android-chrome-192x192.png" rel="apple-touch-icon"/>
+    
+    <!-- Tesseract.js for OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        :root {
+            --color-primary: #2563eb;
+            --color-primary-light: #3b82f6;
+            --color-success: #059669;
+            --color-danger: #dc2626;
+            --color-warning: #f59e0b;
+            --color-gray-50: #f9fafb;
+            --color-gray-100: #f3f4f6;
+            --color-gray-200: #e5e7eb;
+            --color-gray-300: #d1d5db;
+            --color-gray-400: #9ca3af;
+            --color-gray-500: #6b7280;
+            --color-gray-600: #4b5563;
+            --color-gray-700: #374151;
+            --color-gray-800: #1f2937;
+            --color-gray-900: #111827;
+            --font-size-xs: 0.7rem;
+            --font-size-sm: 0.8rem;
+            --font-size-base: 0.875rem;
+            --font-size-lg: 1rem;
+            --font-size-xl: 1.125rem;
+            --font-size-2xl: 1.25rem;
+            --space-1: 0.25rem;
+            --space-2: 0.375rem;
+            --space-3: 0.5rem;
+            --space-4: 0.75rem;
+            --space-5: 1rem;
+            --space-6: 1.25rem;
+            --border-radius-sm: 0.25rem;
+            --border-radius: 0.375rem;
+            --border-radius-lg: 0.5rem;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: var(--font-size-base);
+            line-height: 1.4;
+            color: var(--color-gray-800);
+            background: var(--color-gray-50);
+            padding: var(--space-4);
+        }
+
+        .logo-container {
+            max-width: 56rem;
+            margin: 1rem auto 1.5rem auto;
+            padding: 0;
+            text-align: center;
+        }
+
+        .validator-container {
+            max-width: 56rem;
+            margin: 0 auto;
+            background: white;
+            border-radius: var(--border-radius-lg);
+            box-shadow: var(--shadow);
+            border: 1px solid var(--color-gray-200);
+        }
+
+        .validator-header {
+            background: white;
+            padding: var(--space-6) var(--space-6) var(--space-4);
+            border-bottom: 1px solid var(--color-gray-200);
+        }
+
+        .header-content h1 {
+            font-size: var(--font-size-2xl);
+            font-weight: 700;
+            color: var(--color-gray-900);
+            margin-bottom: var(--space-1);
+            letter-spacing: -0.025em;
+        }
+
+        .header-content p {
+            font-size: var(--font-size-sm);
+            color: var(--color-gray-500);
+        }
+
+        .upload-section {
+            padding: var(--space-5) var(--space-6);
+            border-bottom: 1px solid var(--color-gray-100);
+        }
+
+        .upload-area {
+            border: 2px dashed var(--color-gray-300);
+            border-radius: var(--border-radius-lg);
+            padding: 3rem 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            background: var(--color-gray-50);
+            cursor: pointer;
+            position: relative;
+        }
+
+        .upload-area:hover {
+            border-color: var(--color-primary);
+            background: #f0f9ff;
+        }
+
+        .upload-area.dragging {
+            border-color: var(--color-primary);
+            background: #dbeafe;
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: var(--color-gray-400);
+        }
+
+        .upload-title {
+            font-size: var(--font-size-lg);
+            font-weight: 600;
+            color: var(--color-gray-900);
+            margin-bottom: var(--space-2);
+        }
+
+        .upload-subtitle {
+            color: var(--color-gray-500);
+            font-size: var(--font-size-sm);
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .results-section {
+            display: none;
+            padding: var(--space-5) var(--space-6);
+        }
+
+        .results-section.active {
+            display: block;
+        }
+
+        .section-title {
+            font-size: var(--font-size-lg);
+            font-weight: 600;
+            color: var(--color-gray-900);
+            margin-bottom: var(--space-4);
+        }
+
+        .preview-container {
+            display: flex;
+            gap: var(--space-6);
+            margin-bottom: var(--space-6);
+        }
+
+        .preview-image-container {
+            flex: 0 0 300px;
+        }
+
+        .preview-image {
+            width: 100%;
+            height: auto;
+            border-radius: var(--border-radius);
+            border: 1px solid var(--color-gray-200);
+            box-shadow: var(--shadow);
+        }
+
+        .preview-details {
+            flex: 1;
+        }
+
+        .detail-grid {
+            display: grid;
+            gap: var(--space-3);
+        }
+
+        .detail-row {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: var(--space-3);
+            align-items: center;
+        }
+
+        .detail-label {
+            font-weight: 500;
+            color: var(--color-gray-700);
+            font-size: var(--font-size-sm);
+        }
+
+        .detail-value {
+            font-size: var(--font-size-sm);
+            color: var(--color-gray-900);
+        }
+
+        .validation-results {
+            background: var(--color-gray-50);
+            padding: var(--space-4);
+            border-radius: var(--border-radius);
+            border: 1px solid var(--color-gray-200);
+            margin-bottom: var(--space-5);
+        }
+
+        .validation-item {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-3);
+            background: white;
+            border-radius: var(--border-radius);
+            margin-bottom: var(--space-2);
+            border: 1px solid var(--color-gray-200);
+        }
+
+        .validation-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .validation-icon {
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+
+        .validation-icon.pass {
+            color: var(--color-success);
+        }
+
+        .validation-icon.fail {
+            color: var(--color-danger);
+        }
+
+        .validation-icon.warning {
+            color: var(--color-warning);
+        }
+
+        .validation-text {
+            flex: 1;
+            font-size: var(--font-size-sm);
+        }
+
+        .validation-text strong {
+            font-weight: 600;
+            color: var(--color-gray-900);
+        }
+
+        .ocr-results {
+            background: var(--color-gray-50);
+            padding: var(--space-4);
+            border-radius: var(--border-radius);
+            border: 1px solid var(--color-gray-200);
+            margin-bottom: var(--space-5);
+        }
+
+        .detected-text {
+            background: white;
+            padding: var(--space-3);
+            border-radius: var(--border-radius);
+            margin-bottom: var(--space-4);
+            font-family: 'Courier New', monospace;
+            font-size: var(--font-size-sm);
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--color-gray-200);
+        }
+
+        .typo-list {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-2);
+        }
+
+        .typo-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--space-3);
+            background: white;
+            border-radius: var(--border-radius);
+            border: 1px solid var(--color-warning);
+            background: #fffbeb;
+        }
+
+        .typo-word {
+            font-weight: 600;
+            color: var(--color-warning);
+            font-size: var(--font-size-base);
+        }
+
+        .typo-context {
+            font-size: var(--font-size-xs);
+            color: var(--color-gray-600);
+            margin-top: var(--space-1);
+        }
+
+        .typo-actions {
+            display: flex;
+            gap: var(--space-2);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-2) var(--space-4);
+            border: none;
+            border-radius: var(--border-radius);
+            font-weight: 500;
+            font-size: var(--font-size-sm);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            outline: none;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-primary {
+            background: var(--color-primary);
+            color: white;
+            border: 1px solid var(--color-primary);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--color-primary-light);
+        }
+
+        .btn-success {
+            background: var(--color-success);
+            color: white;
+            border: 1px solid var(--color-success);
+        }
+
+        .btn-danger {
+            background: var(--color-danger);
+            color: white;
+            border: 1px solid var(--color-danger);
+        }
+
+        .btn-outline {
+            background: white;
+            color: var(--color-gray-700);
+            border: 1px solid var(--color-gray-300);
+        }
+
+        .btn-outline:hover {
+            background: var(--color-gray-50);
+        }
+
+        .btn-sm {
+            padding: var(--space-1) var(--space-2);
+            font-size: var(--font-size-xs);
+        }
+
+        .action-buttons {
+            padding: var(--space-5) var(--space-6);
+            background: var(--color-gray-50);
+            border-top: 1px solid var(--color-gray-200);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-2) var(--space-3);
+            border-radius: var(--border-radius);
+            font-weight: 600;
+            font-size: var(--font-size-sm);
+        }
+
+        .status-badge.pass {
+            background: #ecfdf5;
+            color: var(--color-success);
+            border: 1px solid #10b981;
+        }
+
+        .status-badge.fail {
+            background: #fef2f2;
+            color: var(--color-danger);
+            border: 1px solid #ef4444;
+        }
+
+        .status-badge.warning {
+            background: #fffbeb;
+            color: var(--color-warning);
+            border: 1px solid #f59e0b;
+        }
+
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .loading-content {
+            background: white;
+            padding: var(--space-6);
+            border-radius: var(--border-radius-lg);
+            text-align: center;
+            box-shadow: var(--shadow-md);
+        }
+
+        .spinner {
+            border: 3px solid var(--color-gray-200);
+            border-top: 3px solid var(--color-primary);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto var(--space-4);
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: var(--font-size-base);
+            color: var(--color-gray-700);
+        }
+
+        .iab-match-info {
+            background: #ecfdf5;
+            border: 1px solid var(--color-success);
+            border-radius: var(--border-radius);
+            padding: var(--space-3);
+            margin-top: var(--space-2);
+            font-size: var(--font-size-sm);
+        }
+
+        .iab-match-info strong {
+            color: var(--color-success);
+        }
+
+        @media (max-width: 768px) {
+            .preview-container {
+                flex-direction: column;
+            }
+            
+            .preview-image-container {
+                flex: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Malka Logo -->
+    <div class="logo-container">
+        <svg viewBox="0 0 984 200" style="width: 180px; height: auto; display: inline-block;">
+            <g fill="#1f2937">
+                <path d="M184.7-0.2h24.1v200h-50.5v-91.1L104.2,179L50,108.7v91.1H-0.2v-200h23.8l80.6,105L184.7-0.2z"/>
+                <path d="M374.6,199.8l-15.9-35.2h-81.4l-15.6,35.2h-52.8l97-200H330l97.3,200H374.6z M317.8,73.2l-22.7,49.9h45.7L317.8,73.2z"/>
+                <path d="M477,158.3h98.4v41.4H426.8v-200H477V158.3z"/>
+                <path d="M677.9,99.3l89.4,100.4h-65.8l-55.9-62.1l-16.5,17.9v44.3h-48.8v-200h48.8v84.5L704-0.2h60.4L677.9,99.3z"/>
+                <path d="M931.2,199.8l-15.9-35.2h-81.4l-15.6,35.2h-52.8l97-200h24.1l97.3,200H931.2z M874.5,73.2l-22.7,49.9h45.7L874.5,73.2z"/>
+            </g>
+        </svg>
+    </div>
+
+    <!-- Main Container -->
+    <div class="validator-container">
+        <!-- Header -->
+        <header class="validator-header">
+            <div class="header-content">
+                <h1>Banner Validator</h1>
+                <p>Validate static banners against IAB standards and check for typos</p>
+            </div>
+        </header>
+
+        <!-- Upload Section -->
+        <section class="upload-section">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📤</div>
+                <div class="upload-title">Drop your banner here or click to upload</div>
+                <div class="upload-subtitle">Supports JPG, PNG, GIF • Max 10MB</div>
+                <input type="file" id="fileInput" accept="image/jpeg,image/jpg,image/png,image/gif">
+            </div>
+        </section>
+
+        <!-- Results Section -->
+        <section class="results-section" id="resultsSection">
+            <h2 class="section-title">Validation Results</h2>
+
+            <!-- Preview and Details -->
+            <div class="preview-container">
+                <div class="preview-image-container">
+                    <img id="previewImage" class="preview-image" alt="Banner preview">
+                </div>
+                <div class="preview-details">
+                    <div class="detail-grid">
+                        <div class="detail-row">
+                            <span class="detail-label">File Name:</span>
+                            <span class="detail-value" id="fileName">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Dimensions:</span>
+                            <span class="detail-value" id="dimensions">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">File Size:</span>
+                            <span class="detail-value" id="fileSize">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Format:</span>
+                            <span class="detail-value" id="format">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">IAB Standard:</span>
+                            <span class="detail-value" id="iabStandard">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- IAB Validation Results -->
+            <div class="validation-results">
+                <h3 class="section-title">IAB Compliance Check</h3>
+                <div id="validationList"></div>
+            </div>
+
+            <!-- OCR Results -->
+            <div class="ocr-results">
+                <h3 class="section-title">Text Analysis</h3>
+                <div class="detected-text" id="detectedText">
+                    Scanning for text...
+                </div>
+                <div id="typoSection">
+                    <h4 style="font-size: var(--font-size-base); font-weight: 600; margin-bottom: var(--space-3);">Potential Typos Found</h4>
+                    <div class="typo-list" id="typoList"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Action Buttons -->
+        <div class="action-buttons" id="actionButtons" style="display: none;">
+            <div class="status-badge" id="overallStatus">
+                <span>Validation Complete</span>
+            </div>
+            <div>
+                <button class="btn btn-outline" id="downloadReport">📄 Download Report</button>
+                <button class="btn btn-primary" id="validateAnother">Validate Another Banner</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <div class="loading-text">Analyzing your banner...</div>
+        </div>
+    </div>
+
+    <script>
+        // IAB Standard Specifications (from the PDF)
+        const IAB_SPECS = {
+            fixedSizes: [
+                { name: "Billboard", width: 970, height: 250, maxKB: 250 },
+                { name: "Smartphone Banner", width: 300, height: 50, maxKB: 50 },
+                { name: "Smartphone Banner", width: 320, height: 50, maxKB: 50 },
+                { name: "Leaderboard", width: 728, height: 90, maxKB: 150 },
+                { name: "Super Leaderboard/Pushdown", width: 970, height: 90, maxKB: 200 },
+                { name: "Portrait", width: 300, height: 1050, maxKB: 250 },
+                { name: "Skyscraper", width: 160, height: 600, maxKB: 150 },
+                { name: "Medium Rectangle", width: 300, height: 250, maxKB: 150 },
+                { name: "Small Banner", width: 120, height: 60, maxKB: 50 },
+                { name: "Mobile Phone Interstitial", width: 640, height: 1136, maxKB: 300 },
+                { name: "Mobile Phone Interstitial", width: 750, height: 1334, maxKB: 300 },
+                { name: "Mobile Phone Interstitial", width: 1080, height: 1920, maxKB: 300 }
+            ],
+            // Flexible sizing grid based on pixel count
+            flexibleSizing: [
+                { maxPixels: 180000, maxKB: 50 },
+                { maxPixels: 300000, maxKB: 100 },
+                { maxPixels: 500000, maxKB: 150 },
+                { maxPixels: 700000, maxKB: 200 },
+                { maxPixels: 900000, maxKB: 250 },
+                { maxPixels: 1000000, maxKB: 300 },
+                { maxPixels: Infinity, maxKB: 350 }
+            ]
+        };
+
+        // Common typo patterns and dictionary
+        const COMMON_AD_TERMS = [
+            'sale', 'offer', 'discount', 'free', 'limited', 'exclusive', 'guaranteed',
+            'click', 'shop', 'buy', 'save', 'new', 'now', 'today', 'hurry'
+        ];
+
+        // Simple spell check dictionary (expandable)
+        const DICTIONARY = new Set([
+            ...COMMON_AD_TERMS,
+            // Add more common words
+            'the', 'and', 'for', 'with', 'your', 'our', 'get', 'off', 'only',
+            'best', 'more', 'here', 'time', 'deal', 'price', 'available'
+        ]);
+
+        let currentFile = null;
+        let validationResults = {
+            dimensions: false,
+            fileSize: false,
+            format: false,
+            overall: false
+        };
+
+        // Initialize Tesseract worker
+        let tesseractWorker = null;
+
+        async function initializeTesseract() {
+            if (!tesseractWorker) {
+                tesseractWorker = await Tesseract.createWorker({
+                    logger: m => console.log(m)
+                });
+                await tesseractWorker.loadLanguage('eng');
+                await tesseractWorker.initialize('eng');
+            }
+            return tesseractWorker;
+        }
+
+        // File upload handling
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragging');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragging');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragging');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        async function handleFile(file) {
+            // Validate file type
+            if (!file.type.match(/^image\/(jpeg|jpg|png|gif)$/)) {
+                alert('Please upload a valid image file (JPG, PNG, or GIF)');
+                return;
+            }
+
+            // Validate file size (max 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                alert('File size must be less than 10MB');
+                return;
+            }
+
+            currentFile = file;
+            loadingOverlay.classList.add('active');
+
+            try {
+                // Process the image
+                await processImage(file);
+                
+                // Show results
+                document.getElementById('resultsSection').classList.add('active');
+                document.getElementById('actionButtons').style.display = 'flex';
+                
+                // Scroll to results
+                document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+            } catch (error) {
+                console.error('Error processing image:', error);
+                alert('Error processing image. Please try again.');
+            } finally {
+                loadingOverlay.classList.remove('active');
+            }
+        }
+
+        async function processImage(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                
+                reader.onload = async (e) => {
+                    const img = new Image();
+                    
+                    img.onload = async () => {
+                        // Display preview
+                        document.getElementById('previewImage').src = e.target.result;
+                        
+                        // Display file details
+                        document.getElementById('fileName').textContent = file.name;
+                        document.getElementById('dimensions').textContent = `${img.width} × ${img.height}px`;
+                        document.getElementById('fileSize').textContent = formatFileSize(file.size);
+                        document.getElementById('format').textContent = file.type.split('/')[1].toUpperCase();
+                        
+                        // Validate against IAB standards
+                        validateIABStandards(img.width, img.height, file.size);
+                        
+                        // Perform OCR
+                        await performOCR(e.target.result);
+                        
+                        // Update overall status
+                        updateOverallStatus();
+                        
+                        resolve();
+                    };
+                    
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function validateIABStandards(width, height, fileSize) {
+            const validationList = document.getElementById('validationList');
+            validationList.innerHTML = '';
+            
+            // Check for exact IAB match
+            const exactMatch = IAB_SPECS.fixedSizes.find(spec => 
+                (spec.width === width && spec.height === height)
+            );
+            
+            let fileSizeKB = fileSize / 1024;
+            let validations = [];
+            
+            if (exactMatch) {
+                // Found exact IAB standard
+                document.getElementById('iabStandard').innerHTML = 
+                    `<strong style="color: var(--color-success);">${exactMatch.name}</strong>`;
+                
+                // Check dimensions (automatic pass for exact match)
+                validations.push({
+                    status: 'pass',
+                    text: `<strong>Dimensions:</strong> Matches IAB standard "${exactMatch.name}" (${width}×${height}px)`
+                });
+                validationResults.dimensions = true;
+                
+                // Check file size
+                if (fileSizeKB <= exactMatch.maxKB) {
+                    validations.push({
+                        status: 'pass',
+                        text: `<strong>File Size:</strong> ${formatFileSize(fileSize)} is within limit (max ${exactMatch.maxKB}KB)`
+                    });
+                    validationResults.fileSize = true;
+                } else {
+                    validations.push({
+                        status: 'fail',
+                        text: `<strong>File Size:</strong> ${formatFileSize(fileSize)} exceeds limit (max ${exactMatch.maxKB}KB)`
+                    });
+                    validationResults.fileSize = false;
+                }
+            } else {
+                // No exact match, check flexible sizing
+                document.getElementById('iabStandard').innerHTML = 
+                    '<span style="color: var(--color-warning);">Non-standard size</span>';
+                
+                // Check if dimensions are close to any IAB standard
+                const closestMatch = findClosestIABMatch(width, height);
+                if (closestMatch && closestMatch.distance < 50) {
+                    validations.push({
+                        status: 'warning',
+                        text: `<strong>Dimensions:</strong> ${width}×${height}px is close to IAB "${closestMatch.spec.name}" (${closestMatch.spec.width}×${closestMatch.spec.height}px)`
+                    });
+                } else {
+                    validations.push({
+                        status: 'warning',
+                        text: `<strong>Dimensions:</strong> ${width}×${height}px does not match standard IAB sizes`
+                    });
+                }
+                validationResults.dimensions = false;
+                
+                // Use flexible sizing grid for file size
+                const pixelCount = width * height * 4; // 2x resolution
+                const flexSpec = IAB_SPECS.flexibleSizing.find(spec => pixelCount <= spec.maxPixels);
+                
+                if (flexSpec && fileSizeKB <= flexSpec.maxKB) {
+                    validations.push({
+                        status: 'pass',
+                        text: `<strong>File Size:</strong> ${formatFileSize(fileSize)} is within flexible grid limit (max ${flexSpec.maxKB}KB)`
+                    });
+                    validationResults.fileSize = true;
+                } else {
+                    validations.push({
+                        status: 'fail',
+                        text: `<strong>File Size:</strong> ${formatFileSize(fileSize)} exceeds flexible grid limit`
+                    });
+                    validationResults.fileSize = false;
+                }
+            }
+            
+            // Check format
+            const format = currentFile.type.split('/')[1].toUpperCase();
+            if (['JPEG', 'JPG', 'PNG', 'GIF'].includes(format)) {
+                validations.push({
+                    status: 'pass',
+                    text: `<strong>Format:</strong> ${format} is an accepted format`
+                });
+                validationResults.format = true;
+            } else {
+                validations.push({
+                    status: 'fail',
+                    text: `<strong>Format:</strong> ${format} is not an accepted format (use JPG, PNG, or GIF)`
+                });
+                validationResults.format = false;
+            }
+            
+            // Display validations
+            validations.forEach(validation => {
+                const item = document.createElement('div');
+                item.className = 'validation-item';
+                item.innerHTML = `
+                    <span class="validation-icon ${validation.status}">
+                        ${validation.status === 'pass' ? '✓' : validation.status === 'fail' ? '✗' : '⚠'}
+                    </span>
+                    <span class="validation-text">${validation.text}</span>
+                `;
+                validationList.appendChild(item);
+            });
+        }
+
+        function findClosestIABMatch(width, height) {
+            let closest = null;
+            let minDistance = Infinity;
+            
+            IAB_SPECS.fixedSizes.forEach(spec => {
+                const distance = Math.sqrt(
+                    Math.pow(width - spec.width, 2) + 
+                    Math.pow(height - spec.height, 2)
+                );
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closest = { spec, distance };
+                }
+            });
+            
+            return closest;
+        }
+
+        async function performOCR(imageDataUrl) {
+            const detectedTextElement = document.getElementById('detectedText');
+            const typoSection = document.getElementById('typoSection');
+            const typoList = document.getElementById('typoList');
+            
+            try {
+                detectedTextElement.textContent = 'Scanning for text...';
+                
+                // Initialize Tesseract if needed
+                const worker = await initializeTesseract();
+                
+                // Perform OCR
+                const { data: { text, confidence } } = await worker.recognize(imageDataUrl);
+                
+                if (text.trim()) {
+                    detectedTextElement.textContent = text;
+                    
+                    // Check for typos
+                    const typos = detectTypos(text);
+                    
+                    if (typos.length > 0) {
+                        typoSection.style.display = 'block';
+                        typoList.innerHTML = '';
+                        
+                        typos.forEach((typo, index) => {
+                            const typoItem = document.createElement('div');
+                            typoItem.className = 'typo-item';
+                            typoItem.id = `typo-${index}`;
+                            typoItem.innerHTML = `
+                                <div>
+                                    <div class="typo-word">"${typo.word}"</div>
+                                    <div class="typo-context">Context: "...${typo.context}..."</div>
+                                </div>
+                                <div class="typo-actions">
+                                    <button class="btn btn-sm btn-success" onclick="approveTypo(${index})">
+                                        ✓ Correct
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="rejectTypo(${index})">
+                                        ✗ Is Typo
+                                    </button>
+                                </div>
+                            `;
+                            typoList.appendChild(typoItem);
+                        });
+                    } else {
+                        typoSection.style.display = 'none';
+                    }
+                    
+                    // Add confidence indicator
+                    if (confidence < 70) {
+                        detectedTextElement.innerHTML += `
+                            <div style="margin-top: 10px; color: var(--color-warning); font-size: var(--font-size-xs);">
+                                ⚠ Low confidence (${confidence.toFixed(0)}%). Text may not be fully accurate.
+                            </div>
+                        `;
+                    }
+                } else {
+                    detectedTextElement.textContent = 'No text detected in the banner.';
+                    typoSection.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('OCR Error:', error);
+                detectedTextElement.textContent = 'Error scanning text. Please try again.';
+                typoSection.style.display = 'none';
+            }
+        }
+
+        function detectTypos(text) {
+            const typos = [];
+            const words = text.toLowerCase().match(/\b[a-z]+\b/g) || [];
+            
+            words.forEach(word => {
+                // Skip very short words and numbers
+                if (word.length <= 2 || /^\d+$/.test(word)) return;
+                
+                // Check against dictionary and common patterns
+                if (!DICTIONARY.has(word) && !isLikelyBrandName(word)) {
+                    // Find context around the word
+                    const contextMatch = text.match(new RegExp(`.{0,20}${word}.{0,20}`, 'i'));
+                    const context = contextMatch ? contextMatch[0] : word;
+                    
+                    typos.push({
+                        word: word,
+                        context: context,
+                        approved: false
+                    });
+                }
+            });
+            
+            return typos;
+        }
+
+        function isLikelyBrandName(word) {
+            // Simple heuristic: words with capital letters in the middle or all caps
+            // This would need to be expanded with actual brand detection
+            return /[A-Z]/.test(word) || word.length > 10;
+        }
+
+        function approveTypo(index) {
+            const typoItem = document.getElementById(`typo-${index}`);
+            if (typoItem) {
+                typoItem.style.opacity = '0.5';
+                typoItem.querySelector('.typo-actions').innerHTML = 
+                    '<span style="color: var(--color-success); font-size: var(--font-size-sm);">✓ Approved</span>';
+            }
+        }
+
+        function rejectTypo(index) {
+            const typoItem = document.getElementById(`typo-${index}`);
+            if (typoItem) {
+                typoItem.style.borderColor = 'var(--color-danger)';
+                typoItem.style.background = '#fef2f2';
+                typoItem.querySelector('.typo-actions').innerHTML = 
+                    '<span style="color: var(--color-danger); font-size: var(--font-size-sm);">✗ Marked as typo</span>';
+            }
+        }
+
+        function updateOverallStatus() {
+            const overallStatus = document.getElementById('overallStatus');
+            const allPassed = validationResults.dimensions && 
+                             validationResults.fileSize && 
+                             validationResults.format;
+            
+            if (allPassed) {
+                overallStatus.className = 'status-badge pass';
+                overallStatus.innerHTML = '<span>✓ All Checks Passed</span>';
+                validationResults.overall = true;
+            } else if (validationResults.format && validationResults.fileSize) {
+                overallStatus.className = 'status-badge warning';
+                overallStatus.innerHTML = '<span>⚠ Minor Issues Found</span>';
+                validationResults.overall = false;
+            } else {
+                overallStatus.className = 'status-badge fail';
+                overallStatus.innerHTML = '<span>✗ Issues Found</span>';
+                validationResults.overall = false;
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Download Report
+        document.getElementById('downloadReport').addEventListener('click', () => {
+            generateReport();
+        });
+
+        function generateReport() {
+            const timestamp = new Date().toISOString();
+            const fileName = document.getElementById('fileName').textContent;
+            const dimensions = document.getElementById('dimensions').textContent;
+            const fileSize = document.getElementById('fileSize').textContent;
+            const format = document.getElementById('format').textContent;
+            const iabStandard = document.getElementById('iabStandard').textContent;
+            const detectedText = document.getElementById('detectedText').textContent;
+            
+            let report = `BANNER VALIDATION REPORT
+Generated: ${timestamp}
+By: Malka Media Group LLC
+
+=====================================
+FILE INFORMATION
+=====================================
+File Name: ${fileName}
+Dimensions: ${dimensions}
+File Size: ${fileSize}
+Format: ${format}
+IAB Standard: ${iabStandard}
+
+=====================================
+VALIDATION RESULTS
+=====================================
+`;
+
+            // Add validation results
+            const validationItems = document.querySelectorAll('.validation-item');
+            validationItems.forEach(item => {
+                const icon = item.querySelector('.validation-icon').textContent.trim();
+                const text = item.querySelector('.validation-text').textContent.trim();
+                report += `${icon} ${text}\n`;
+            });
+
+            report += `
+=====================================
+TEXT ANALYSIS
+=====================================
+Detected Text:
+${detectedText}
+
+`;
+
+            // Add typo results if any
+            const typoItems = document.querySelectorAll('.typo-item');
+            if (typoItems.length > 0) {
+                report += `Potential Typos Found: ${typoItems.length}\n`;
+                typoItems.forEach(item => {
+                    const word = item.querySelector('.typo-word').textContent;
+                    report += `- ${word}\n`;
+                });
+            } else {
+                report += `No typos detected.\n`;
+            }
+
+            report += `
+=====================================
+OVERALL STATUS
+=====================================
+${document.getElementById('overallStatus').textContent}
+
+=====================================
+This report was automatically generated by the Malka Media Banner Validator.
+For questions, please contact your account manager.
+`;
+
+            // Download the report
+            const blob = new Blob([report], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `banner-validation-report-${fileName.split('.')[0]}-${Date.now()}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Validate Another
+        document.getElementById('validateAnother').addEventListener('click', () => {
+            // Reset everything
+            currentFile = null;
+            validationResults = {
+                dimensions: false,
+                fileSize: false,
+                format: false,
+                overall: false
+            };
+            
+            // Hide results
+            document.getElementById('resultsSection').classList.remove('active');
+            document.getElementById('actionButtons').style.display = 'none';
+            
+            // Clear file input
+            fileInput.value = '';
+            
+            // Scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Banner Validator initialized');
+        });
+    </script>
+</body>
+</html>
