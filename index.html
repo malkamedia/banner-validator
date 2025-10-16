@@ -10,8 +10,6 @@
     <link href="https://cdn.prod.website-files.com/63ed602b8bb6f01fe4678cd7/63f61fc551b1bc5c6514d0a1_android-chrome-192x192.png" rel="apple-touch-icon"/>
     
     <!-- External Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/typo-js@1.2.1/typo.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
     <style>
@@ -741,839 +739,689 @@
         </div>
     </div>
 
-    <script>
-        // Global state
-        let uploadedFiles = [];
-        let processedBanners = [];
-        let sessionMemory = {
+<script>
+    // Global state
+    let uploadedFiles = [];
+    let processedBanners = [];
+    let sessionMemory = {
+        approvedWords: new Set(),
+        rejectedWords: new Set()
+    };
+    let spellChecker = null;
+    let GOOGLE_API_KEY = null;
+    
+    // Configuration section for API key
+    function showApiKeyPrompt() {
+        const existingKey = localStorage.getItem('gcv_api_key');
+        if (existingKey) {
+            GOOGLE_API_KEY = existingKey;
+            return true;
+        }
+        
+        const key = prompt('Please enter your Google Cloud Vision API key:\n\nIf you don\'t have one:\n1. Go to https://console.cloud.google.com\n2. Enable Cloud Vision API\n3. Create credentials (API Key)\n4. Restrict it to Cloud Vision API for security');
+        
+        if (key) {
+            GOOGLE_API_KEY = key;
+            localStorage.setItem('gcv_api_key', key);
+            return true;
+        }
+        return false;
+    }
+    
+    // IAB Specifications
+    const IAB_SPECS = {
+        fixedSizes: [
+            { name: "Billboard", width: 970, height: 250, maxKB: 250 },
+            { name: "Smartphone Banner", width: 300, height: 50, maxKB: 50 },
+            { name: "Smartphone Banner", width: 320, height: 50, maxKB: 50 },
+            { name: "Leaderboard", width: 728, height: 90, maxKB: 150 },
+            { name: "Super Leaderboard", width: 970, height: 90, maxKB: 200 },
+            { name: "Portrait", width: 300, height: 1050, maxKB: 250 },
+            { name: "Monster MPU", width: 300, height: 600, maxKB: 200 },
+            { name: "Skyscraper", width: 160, height: 600, maxKB: 150 },
+            { name: "Medium Rectangle", width: 300, height: 250, maxKB: 150 },
+            { name: "Small Banner", width: 120, height: 60, maxKB: 50 },
+            { name: "Mobile Interstitial", width: 640, height: 1136, maxKB: 300 },
+            { name: "Mobile Interstitial", width: 750, height: 1334, maxKB: 300 },
+            { name: "Mobile Interstitial", width: 1080, height: 1920, maxKB: 300 }
+        ]
+    };
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', async () => {
+        // Check for API key
+        if (!showApiKeyPrompt()) {
+            alert('Google Cloud Vision API key is required for text detection. The tool will work for IAB validation only.');
+        }
+        await initializeSpellChecker();
+        setupEventListeners();
+    });
+
+    async function initializeSpellChecker() {
+        // Common English words dictionary
+        const commonWords = new Set([
+            // Articles, pronouns, prepositions
+            'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as',
+            'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their',
+            'this', 'that', 'these', 'those', 'which', 'who', 'whom', 'whose', 'what', 'when', 'where', 'why', 'how',
+            // Common verbs
+            'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'shall',
+            'get', 'got', 'make', 'made', 'go', 'went', 'gone', 'take', 'took', 'taken', 'come', 'came', 'see', 'saw', 'seen', 'know', 'knew', 'known',
+            // Common nouns
+            'time', 'year', 'years', 'people', 'way', 'day', 'days', 'man', 'men', 'woman', 'women', 'thing', 'things', 'child', 'children',
+            'world', 'life', 'home', 'water', 'room', 'family', 'country', 'school', 'state', 'business', 'company', 'money',
+            // Common adjectives
+            'good', 'new', 'first', 'last', 'long', 'great', 'little', 'own', 'other', 'old', 'right', 'big', 'high', 'different', 'small',
+            'large', 'next', 'early', 'young', 'important', 'few', 'public', 'bad', 'same', 'able', 'free', 'best', 'better',
+            // Technology and marketing terms
+            'online', 'digital', 'internet', 'website', 'web', 'email', 'click', 'download', 'upload', 'share', 'link', 'video', 'image',
+            'social', 'media', 'network', 'sale', 'offer', 'discount', 'price', 'shop', 'store', 'product', 'service', 'customer',
+            'brand', 'quality', 'value', 'save', 'now', 'today', 'limited', 'exclusive', 'special', 'premium', 'professional'
+        ]);
+
+        spellChecker = {
+            dictionary: commonWords,
+            check: function(word) {
+                const cleaned = word.toLowerCase().replace(/[^a-z]/g, '');
+                if (cleaned.length <= 2) return true;
+                if (/^\d+$/.test(word)) return true;
+                if (sessionMemory.approvedWords.has(cleaned)) return true;
+                if (sessionMemory.rejectedWords.has(cleaned)) return false;
+                return this.dictionary.has(cleaned);
+            }
+        };
+        
+        console.log('Spell checker initialized with built-in dictionary');
+    }
+
+    async function detectTextWithGoogleVision(imageDataUrl) {
+        if (!GOOGLE_API_KEY) {
+            console.log('No API key configured, skipping text detection');
+            return { text: '', confidence: 0 };
+        }
+        
+        try {
+            const base64Image = imageDataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
+            
+            const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_API_KEY}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    requests: [{
+                        image: {
+                            content: base64Image
+                        },
+                        features: [{
+                            type: 'TEXT_DETECTION',
+                            maxResults: 1
+                        }]
+                    }]
+                })
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                console.error('Google Vision API error:', error);
+                
+                if (response.status === 403 || response.status === 401) {
+                    alert('Invalid or expired API key. Please refresh the page and enter a valid key.');
+                    localStorage.removeItem('gcv_api_key');
+                }
+                return { text: '', confidence: 0 };
+            }
+            
+            const data = await response.json();
+            
+            if (data.responses && data.responses[0]) {
+                const response = data.responses[0];
+                
+                if (response.fullTextAnnotation) {
+                    const fullText = response.fullTextAnnotation.text;
+                    console.log('Detected text:', fullText);
+                    return {
+                        text: fullText,
+                        confidence: 85
+                    };
+                }
+            }
+            
+            return { text: '', confidence: 0 };
+            
+        } catch (error) {
+            console.error('Error calling Google Vision API:', error);
+            return { text: '', confidence: 0 };
+        }
+    }
+
+    function setupEventListeners() {
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const processBtn = document.getElementById('processBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const downloadReportBtn = document.getElementById('downloadReportBtn');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragging');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragging');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragging');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        processBtn.addEventListener('click', processBatch);
+        resetBtn.addEventListener('click', resetValidator);
+        downloadReportBtn.addEventListener('click', generatePDFReport);
+    }
+
+    function handleFiles(files) {
+        const fileArray = Array.from(files);
+        const validFiles = fileArray.filter(file => {
+            if (!file.type.match(/^image\/(jpeg|jpg|png|gif)$/)) {
+                console.log('Invalid file type:', file.name);
+                return false;
+            }
+            if (file.size > 10 * 1024 * 1024) {
+                console.log('File too large:', file.name);
+                return false;
+            }
+            return true;
+        });
+
+        if (validFiles.length === 0) {
+            alert('Please upload valid image files (JPG, PNG, GIF) under 10MB');
+            return;
+        }
+
+        uploadedFiles = [...uploadedFiles, ...validFiles].slice(0, 12);
+        updateFileQueue();
+    }
+
+    function updateFileQueue() {
+        const queueEl = document.getElementById('fileQueue');
+        const processBtn = document.getElementById('processBtn');
+
+        if (uploadedFiles.length === 0) {
+            queueEl.innerHTML = '<div class="queue-empty">No files uploaded yet</div>';
+            processBtn.disabled = true;
+        } else {
+            queueEl.innerHTML = uploadedFiles.map((file, index) => {
+                const dimensionMatch = file.name.match(/(\d{2,4})x(\d{2,4})/);
+                let iabName = '';
+                
+                if (dimensionMatch) {
+                    const width = parseInt(dimensionMatch[1]);
+                    const height = parseInt(dimensionMatch[2]);
+                    const iabMatch = IAB_SPECS.fixedSizes.find(spec => 
+                        spec.width === width && spec.height === height
+                    );
+                    if (iabMatch) {
+                        iabName = `<span class="iab-badge">${iabMatch.name}</span>`;
+                    }
+                }
+                
+                return `
+                    <div class="file-item" data-index="${index}">
+                        <div class="file-info">
+                            <span class="file-name">${file.name}</span>
+                            ${iabName}
+                        </div>
+                        <div class="file-status">
+                            <span class="status-icon status-pending">✓</span>
+                            <span>Uploaded</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            processBtn.disabled = false;
+        }
+    }
+
+    async function processBatch() {
+        if (uploadedFiles.length === 0) return;
+
+        processedBanners = [];
+        sessionMemory = {
             approvedWords: new Set(),
             rejectedWords: new Set()
         };
-        let spellChecker = null;
-        let tesseractWorker = null;
-        
-        // IAB Specifications
-        const IAB_SPECS = {
-            fixedSizes: [
-                { name: "Billboard", width: 970, height: 250, maxKB: 250 },
-                { name: "Smartphone Banner", width: 300, height: 50, maxKB: 50 },
-                { name: "Smartphone Banner", width: 320, height: 50, maxKB: 50 },
-                { name: "Leaderboard", width: 728, height: 90, maxKB: 150 },
-                { name: "Super Leaderboard", width: 970, height: 90, maxKB: 200 },
-                { name: "Portrait", width: 300, height: 1050, maxKB: 250 },
-                { name: "Monster MPU", width: 300, height: 600, maxKB: 200 }, // Added common size
-                { name: "Skyscraper", width: 160, height: 600, maxKB: 150 },
-                { name: "Medium Rectangle", width: 300, height: 250, maxKB: 150 },
-                { name: "Small Banner", width: 120, height: 60, maxKB: 50 },
-                { name: "Mobile Interstitial", width: 640, height: 1136, maxKB: 300 },
-                { name: "Mobile Interstitial", width: 750, height: 1334, maxKB: 300 },
-                { name: "Mobile Interstitial", width: 1080, height: 1920, maxKB: 300 }
-            ]
-        };
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', async () => {
-            await initializeSpellChecker();
-            setupEventListeners();
-        });
+        document.getElementById('processingSection').classList.add('active');
+        document.getElementById('totalFiles').textContent = uploadedFiles.length;
+        document.getElementById('processBtn').disabled = true;
 
-        async function initializeSpellChecker() {
-            // Use a comprehensive built-in word list to avoid CORS issues
-            // Common English words (expanded list)
-            const commonWords = new Set([
-                // Articles, pronouns, prepositions
-                'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as',
-                'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their',
-                'this', 'that', 'these', 'those', 'which', 'who', 'whom', 'whose', 'what', 'when', 'where', 'why', 'how',
-                // Common verbs
-                'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'shall',
-                'get', 'got', 'make', 'made', 'go', 'went', 'gone', 'take', 'took', 'taken', 'come', 'came', 'see', 'saw', 'seen', 'know', 'knew', 'known',
-                'think', 'thought', 'give', 'gave', 'given', 'find', 'found', 'tell', 'told', 'ask', 'asked', 'work', 'worked', 'seem', 'seemed',
-                'feel', 'felt', 'try', 'tried', 'leave', 'left', 'call', 'called', 'become', 'became', 'begin', 'began', 'keep', 'kept',
-                'hold', 'held', 'bring', 'brought', 'write', 'wrote', 'written', 'show', 'showed', 'shown', 'hear', 'heard', 'let', 'put', 'mean', 'meant',
-                'set', 'meet', 'met', 'run', 'ran', 'pay', 'paid', 'sit', 'sat', 'speak', 'spoke', 'spoken', 'lie', 'lay', 'stand', 'stood',
-                'lose', 'lost', 'win', 'won', 'understand', 'understood', 'buy', 'bought', 'send', 'sent', 'fall', 'fell', 'fallen', 'choose', 'chose', 'chosen',
-                // Common nouns
-                'time', 'year', 'years', 'people', 'way', 'day', 'days', 'man', 'men', 'woman', 'women', 'thing', 'things', 'child', 'children',
-                'world', 'life', 'hand', 'hands', 'part', 'parts', 'place', 'places', 'week', 'weeks', 'case', 'cases', 'point', 'points',
-                'government', 'company', 'number', 'numbers', 'group', 'groups', 'problem', 'problems', 'fact', 'facts', 'money', 'business',
-                'night', 'home', 'water', 'room', 'mother', 'area', 'story', 'month', 'months', 'right', 'study', 'book', 'books', 'eye', 'eyes',
-                'job', 'jobs', 'word', 'words', 'family', 'student', 'students', 'country', 'school', 'schools', 'state', 'states', 'member', 'members',
-                'idea', 'ideas', 'service', 'services', 'friend', 'friends', 'house', 'father', 'power', 'hour', 'hours', 'game', 'line', 'end',
-                'car', 'cars', 'city', 'name', 'team', 'minute', 'minutes', 'side', 'kind', 'head', 'teacher', 'teachers', 'information', 'question', 'questions',
-                // Common adjectives
-                'good', 'new', 'first', 'last', 'long', 'great', 'little', 'own', 'other', 'old', 'right', 'big', 'high', 'different', 'small',
-                'large', 'next', 'early', 'young', 'important', 'few', 'public', 'bad', 'same', 'able', 'political', 'late', 'general', 'full',
-                'special', 'strong', 'possible', 'free', 'better', 'best', 'sure', 'low', 'human', 'local', 'hard', 'major', 'true', 'federal',
-                'international', 'national', 'economic', 'black', 'white', 'real', 'certain', 'personal', 'open', 'red', 'difficult', 'available',
-                'likely', 'short', 'single', 'medical', 'current', 'wrong', 'private', 'past', 'foreign', 'fine', 'common', 'poor', 'natural',
-                // Technology and internet terms
-                'online', 'digital', 'internet', 'website', 'web', 'email', 'click', 'download', 'upload', 'share', 'link', 'video', 'image',
-                'social', 'media', 'network', 'computer', 'phone', 'mobile', 'app', 'software', 'data', 'user', 'users', 'password', 'account',
-                'search', 'content', 'blog', 'post', 'comment', 'profile', 'page', 'site', 'browser', 'server', 'cloud', 'tech', 'technology',
-                // Marketing and business terms
-                'sale', 'sales', 'offer', 'offers', 'discount', 'price', 'prices', 'free', 'deal', 'deals', 'save', 'saving', 'savings', 'buy',
-                'shop', 'shopping', 'store', 'stores', 'product', 'products', 'service', 'customer', 'customers', 'business', 'market', 'marketing',
-                'brand', 'brands', 'quality', 'value', 'values', 'guarantee', 'guaranteed', 'limited', 'exclusive', 'special', 'premium', 'luxury',
-                'professional', 'expert', 'experts', 'solution', 'solutions', 'success', 'successful', 'growth', 'opportunity', 'opportunities',
-                // Common advertising words
-                'now', 'today', 'new', 'best', 'more', 'only', 'just', 'here', 'get', 'all', 'off', 'out', 'over', 'after', 'before',
-                'plus', 'less', 'most', 'very', 'even', 'back', 'still', 'also', 'well', 'again', 'already', 'always', 'another', 'any',
-                'both', 'each', 'either', 'enough', 'every', 'everything', 'everywhere', 'fast', 'faster', 'fastest', 'few', 'fewer',
-                // Additional common words
-                'about', 'above', 'across', 'actually', 'almost', 'along', 'already', 'although', 'always', 'among', 'amount', 'another',
-                'answer', 'anyone', 'anything', 'appear', 'around', 'away', 'beautiful', 'because', 'become', 'behind', 'being', 'believe',
-                'below', 'between', 'beyond', 'billion', 'both', 'build', 'building', 'called', 'cannot', 'care', 'carefully', 'center',
-                'certainly', 'chance', 'change', 'changes', 'choice', 'choose', 'clear', 'clearly', 'close', 'closed', 'code', 'college',
-                'color', 'coming', 'community', 'complete', 'completely', 'condition', 'conditions', 'consider', 'considered', 'contact',
-                'continue', 'control', 'cost', 'costs', 'course', 'create', 'created', 'creative', 'culture', 'custom', 'daily', 'date',
-                'dead', 'death', 'decision', 'deliver', 'delivery', 'department', 'describe', 'design', 'designed', 'detail', 'details',
-                'develop', 'developed', 'development', 'device', 'difference', 'different', 'directly', 'discover', 'display', 'distance',
-                'document', 'doing', 'dollar', 'dollars', 'door', 'down', 'drive', 'driving', 'during', 'each', 'easy', 'education',
-                'effect', 'effects', 'effort', 'efforts', 'eight', 'either', 'energy', 'enjoy', 'enough', 'enter', 'entire', 'environment',
-                'especially', 'event', 'events', 'ever', 'every', 'everyone', 'everything', 'exactly', 'example', 'excellent', 'except',
-                'experience', 'experienced', 'extra', 'face', 'facility', 'factor', 'factors', 'fail', 'failed', 'fair', 'familiar',
-                'fast', 'feature', 'features', 'federal', 'field', 'figure', 'file', 'files', 'final', 'finally', 'financial', 'finding',
-                'finish', 'finished', 'fire', 'firm', 'five', 'floor', 'focus', 'follow', 'following', 'food', 'foot', 'force', 'form',
-                'former', 'forward', 'four', 'frame', 'freedom', 'fresh', 'friend', 'front', 'fully', 'function', 'fund', 'funding',
-                'further', 'future', 'gain', 'gallery', 'garden', 'gather', 'gender', 'generally', 'generation', 'gift', 'girl', 'glass',
-                'global', 'goal', 'goals', 'going', 'gold', 'gone', 'google', 'grand', 'grant', 'graphic', 'green', 'ground', 'growing',
-                'guest', 'guide', 'half', 'hall', 'happen', 'happened', 'happy', 'having', 'health', 'healthy', 'hearing', 'heart',
-                'heat', 'heavy', 'help', 'helpful', 'helping', 'hidden', 'higher', 'highly', 'history', 'hit', 'holding', 'holiday',
-                'hope', 'hospital', 'host', 'hot', 'hotel', 'housing', 'however', 'huge', 'hundred', 'icon', 'ideal', 'identify', 'identity',
-                'ignore', 'image', 'images', 'imagine', 'impact', 'implement', 'importance', 'improve', 'improved', 'include', 'included',
-                'includes', 'including', 'income', 'increase', 'increased', 'indeed', 'independent', 'index', 'indicate', 'individual',
-                'industry', 'influence', 'info', 'initial', 'inside', 'install', 'instance', 'instead', 'insurance', 'interest', 'interested',
-                'interface', 'internal', 'introduce', 'investment', 'invite', 'involved', 'issue', 'issues', 'item', 'items', 'itself',
-                'join', 'joint', 'journey', 'judge', 'jump', 'junior', 'justice', 'keep', 'keeping', 'key', 'kid', 'kids', 'kill', 'killed',
-                'kind', 'kitchen', 'knowledge', 'label', 'labor', 'lack', 'land', 'language', 'larger', 'latest', 'launch', 'law', 'lead',
-                'leader', 'leaders', 'leading', 'learn', 'learned', 'learning', 'least', 'leave', 'leaving', 'legal', 'length', 'less',
-                'letter', 'level', 'library', 'license', 'life', 'light', 'like', 'liked', 'likely', 'limit', 'limited', 'link', 'list',
-                'listed', 'listen', 'little', 'live', 'lived', 'living', 'load', 'loan', 'local', 'located', 'location', 'lock', 'log',
-                'logo', 'longer', 'look', 'looked', 'looking', 'loss', 'lot', 'love', 'loved', 'lower', 'machine', 'made', 'mail', 'main',
-                'maintain', 'major', 'make', 'makes', 'making', 'manage', 'managed', 'management', 'manager', 'manner', 'manual', 'many',
-                'map', 'mark', 'market', 'marketing', 'marriage', 'master', 'match', 'material', 'materials', 'matter', 'maximum', 'maybe',
-                'mean', 'meaning', 'means', 'measure', 'media', 'medical', 'medicine', 'medium', 'meet', 'meeting', 'member', 'memory',
-                'mention', 'menu', 'message', 'messages', 'method', 'middle', 'might', 'mile', 'military', 'million', 'mind', 'mine',
-                'minimum', 'minor', 'minute', 'miss', 'missing', 'mission', 'mistake', 'mix', 'mixed', 'mobile', 'mode', 'model', 'modern',
-                'moment', 'monday', 'money', 'monitor', 'month', 'monthly', 'moral', 'more', 'morning', 'most', 'mostly', 'motion', 'move',
-                'moved', 'movement', 'movie', 'moving', 'multiple', 'music', 'must', 'myself', 'name', 'named', 'names', 'nation', 'national',
-                'native', 'natural', 'nature', 'near', 'nearby', 'nearly', 'necessary', 'need', 'needed', 'needs', 'negative', 'neighbor',
-                'neither', 'net', 'network', 'never', 'new', 'news', 'next', 'nice', 'night', 'nine', 'nobody', 'none', 'normal', 'normally',
-                'north', 'note', 'noted', 'nothing', 'notice', 'novel', 'now', 'nuclear', 'number', 'numerous', 'object', 'objective',
-                'obtain', 'obvious', 'obviously', 'occur', 'ocean', 'offer', 'offered', 'offering', 'office', 'officer', 'official',
-                'often', 'okay', 'old', 'older', 'once', 'one', 'ones', 'ongoing', 'online', 'only', 'open', 'opened', 'opening', 'operate',
-                'operating', 'operation', 'opinion', 'opportunity', 'option', 'options', 'order', 'ordered', 'orders', 'ordinary', 'organization',
-                'organize', 'organized', 'origin', 'original', 'originally', 'other', 'others', 'otherwise', 'ought', 'our', 'ours', 'ourselves',
-                'out', 'outcome', 'outdoor', 'outer', 'output', 'outside', 'over', 'overall', 'own', 'owned', 'owner', 'pace', 'pack',
-                'package', 'page', 'pages', 'paid', 'pain', 'paint', 'painting', 'pair', 'panel', 'paper', 'papers', 'parent', 'parents',
-                'park', 'parking', 'part', 'participate', 'particular', 'particularly', 'partner', 'partners', 'partnership', 'parts', 'party',
-                'pass', 'passed', 'passenger', 'passing', 'passion', 'past', 'path', 'patient', 'patients', 'pattern', 'pause', 'pay',
-                'paying', 'payment', 'peace', 'peak', 'pen', 'people', 'per', 'percent', 'percentage', 'perfect', 'perfectly', 'perform',
-                'performance', 'perhaps', 'period', 'permanent', 'permission', 'permit', 'person', 'personal', 'personality', 'personally',
-                'persons', 'perspective', 'pet', 'phase', 'philosophy', 'phone', 'photo', 'photograph', 'photos', 'physical', 'pick',
-                'picked', 'picture', 'pictures', 'piece', 'pieces', 'place', 'placed', 'places', 'plain', 'plan', 'plane', 'planet',
-                'planned', 'planning', 'plans', 'plant', 'plants', 'plastic', 'plate', 'platform', 'play', 'played', 'player', 'players',
-                'playing', 'please', 'pleased', 'pleasure', 'plenty', 'plus', 'pocket', 'point', 'pointed', 'points', 'police', 'policy',
-                'political', 'politics', 'pool', 'poor', 'popular', 'population', 'port', 'portion', 'position', 'positive', 'possess',
-                'possibility', 'possible', 'possibly', 'post', 'posted', 'posts', 'potential', 'potentially', 'pound', 'power', 'powerful',
-                'practical', 'practice', 'practices', 'prefer', 'preference', 'preferred', 'prepare', 'prepared', 'presence', 'present',
-                'presented', 'preserve', 'president', 'press', 'pressure', 'pretty', 'prevent', 'previous', 'previously', 'price', 'pride',
-                'primary', 'prime', 'principal', 'principle', 'print', 'printed', 'prior', 'priority', 'prison', 'privacy', 'private',
-                'prize', 'probably', 'problem', 'procedure', 'proceed', 'process', 'processed', 'processes', 'processing', 'produce',
-                'produced', 'producer', 'produces', 'producing', 'product', 'production', 'products', 'profession', 'professional', 'professor',
-                'profile', 'profit', 'program', 'programs', 'progress', 'project', 'projects', 'promise', 'promised', 'promote', 'prompt',
-                'proof', 'proper', 'properly', 'property', 'proposal', 'propose', 'proposed', 'protect', 'protected', 'protection', 'proud',
-                'prove', 'proved', 'proven', 'provide', 'provided', 'provider', 'provides', 'providing', 'public', 'publication', 'publish',
-                'published', 'publisher', 'publishing', 'pull', 'pulled', 'purchase', 'purchased', 'pure', 'purpose', 'purposes', 'push',
-                'pushed', 'put', 'putting', 'qualify', 'quality', 'quantity', 'quarter', 'question', 'questions', 'quick', 'quickly',
-                'quiet', 'quite', 'quote', 'race', 'racial', 'radio', 'rail', 'rain', 'raise', 'raised', 'raising', 'random', 'range',
-                'rank', 'rapid', 'rapidly', 'rare', 'rarely', 'rate', 'rated', 'rates', 'rather', 'rating', 'ratio', 'reach', 'reached',
-                'reaching', 'react', 'reaction', 'read', 'reader', 'readily', 'reading', 'ready', 'real', 'reality', 'realize', 'realized',
-                'really', 'reason', 'reasonable', 'reasons', 'recall', 'receive', 'received', 'recent', 'recently', 'reception', 'recipe',
-                'recognize', 'recognized', 'recommend', 'recommendation', 'recommended', 'record', 'recorded', 'recording', 'records',
-                'recover', 'recovery', 'red', 'reduce', 'reduced', 'reduction', 'refer', 'reference', 'referred', 'referring', 'reflect',
-                'reflected', 'reform', 'refuse', 'refused', 'regard', 'regarding', 'regardless', 'region', 'regional', 'register', 'registered',
-                'registration', 'regular', 'regularly', 'regulate', 'regulation', 'regulations', 'related', 'relation', 'relations',
-                'relationship', 'relationships', 'relative', 'relatively', 'relax', 'release', 'released', 'relevant', 'reliable', 'relief',
-                'religion', 'religious', 'rely', 'remain', 'remained', 'remaining', 'remains', 'remark', 'remarkable', 'remember', 'remembered',
-                'remind', 'remote', 'remove', 'removed', 'rent', 'rental', 'repair', 'repeat', 'repeated', 'replace', 'replaced', 'replacement',
-                'reply', 'report', 'reported', 'reporter', 'reporting', 'reports', 'represent', 'representation', 'representative', 'represented',
-                'representing', 'represents', 'republic', 'republican', 'request', 'requested', 'require', 'required', 'requirement',
-                'requirements', 'requires', 'research', 'reserve', 'reserved', 'resident', 'residential', 'residents', 'resist', 'resistance',
-                'resolution', 'resolve', 'resolved', 'resort', 'resource', 'resources', 'respect', 'respond', 'responded', 'response',
-                'responsibility', 'responsible', 'rest', 'restaurant', 'restore', 'restrict', 'restricted', 'restriction', 'result',
-                'resulted', 'resulting', 'results', 'retail', 'retain', 'retired', 'retirement', 'return', 'returned', 'returning', 'returns',
-                'reveal', 'revealed', 'revenue', 'review', 'reviewed', 'reviews', 'revolution', 'reward', 'rich', 'ride', 'riding', 'right',
-                'rights', 'ring', 'rise', 'rising', 'risk', 'risks', 'river', 'road', 'rock', 'role', 'roll', 'rolled', 'rolling', 'roman',
-                'roof', 'room', 'rooms', 'root', 'rose', 'rough', 'roughly', 'round', 'route', 'routine', 'row', 'royal', 'rule', 'ruled',
-                'rules', 'ruling', 'run', 'running', 'rural', 'rush', 'safe', 'safely', 'safety', 'said', 'sail', 'sale', 'sales', 'salt',
-                'same', 'sample', 'sand', 'sat', 'satisfaction', 'satisfied', 'satisfy', 'saturday', 'save', 'saved', 'saving', 'savings',
-                'saw', 'say', 'saying', 'says', 'scale', 'scan', 'scene', 'schedule', 'scheduled', 'scheme', 'scholar', 'scholarship',
-                'school', 'schools', 'science', 'scientific', 'scientist', 'scientists', 'scope', 'score', 'screen', 'script', 'sea',
-                'search', 'searched', 'searching', 'season', 'seat', 'seated', 'seats', 'second', 'secondary', 'seconds', 'secret',
-                'secretary', 'section', 'sections', 'sector', 'secure', 'secured', 'security', 'see', 'seed', 'seeing', 'seek', 'seeking',
-                'seem', 'seemed', 'seems', 'seen', 'select', 'selected', 'selection', 'self', 'sell', 'selling', 'sells', 'send', 'sending',
-                'senior', 'sense', 'sensitive', 'sent', 'sentence', 'separate', 'separated', 'separately', 'september', 'sequence', 'series',
-                'serious', 'seriously', 'serve', 'served', 'server', 'serves', 'service', 'services', 'serving', 'session', 'set', 'sets',
-                'setting', 'settings', 'settle', 'settled', 'settlement', 'setup', 'seven', 'several', 'severe', 'sex', 'sexual', 'shade',
-                'shadow', 'shake', 'shall', 'shape', 'shaped', 'share', 'shared', 'shares', 'sharing', 'sharp', 'she', 'sheet', 'shelf',
-                'shell', 'shelter', 'shift', 'shifted', 'shine', 'ship', 'shipped', 'shipping', 'ships', 'shirt', 'shock', 'shoe', 'shoes',
-                'shoot', 'shooting', 'shop', 'shopping', 'shops', 'shore', 'short', 'shorter', 'shortly', 'shot', 'should', 'shoulder',
-                'show', 'showed', 'showing', 'shown', 'shows', 'shut', 'sick', 'side', 'sides', 'sight', 'sign', 'signal', 'signature',
-                'signed', 'significant', 'significantly', 'signs', 'silence', 'silent', 'silver', 'similar', 'similarly', 'simple', 'simply',
-                'since', 'sing', 'singer', 'singing', 'single', 'sister', 'sit', 'site', 'sites', 'sits', 'sitting', 'situation', 'situations',
-                'six', 'size', 'sized', 'sizes', 'skill', 'skilled', 'skills', 'skin', 'sky', 'sleep', 'sleeping', 'slice', 'slide', 'slight',
-                'slightly', 'slip', 'slow', 'slowly', 'small', 'smaller', 'smart', 'smell', 'smile', 'smiled', 'smoke', 'smoking', 'smooth',
-                'snap', 'snow', 'social', 'society', 'soft', 'software', 'soil', 'solar', 'sold', 'soldier', 'soldiers', 'sole', 'solely',
-                'solid', 'solution', 'solutions', 'solve', 'solved', 'some', 'somebody', 'somehow', 'someone', 'something', 'sometime',
-                'sometimes', 'somewhat', 'somewhere', 'son', 'song', 'songs', 'soon', 'sophisticated', 'sorry', 'sort', 'sorts', 'sought',
-                'soul', 'sound', 'sounded', 'sounds', 'source', 'sources', 'south', 'southern', 'space', 'spaces', 'spanish', 'speak',
-                'speaker', 'speakers', 'speaking', 'speaks', 'special', 'specialist', 'specialized', 'specially', 'species', 'specific',
-                'specifically', 'specification', 'specifications', 'specified', 'specify', 'speech', 'speed', 'spell', 'spend', 'spending',
-                'spent', 'spin', 'spirit', 'spiritual', 'split', 'spoke', 'spoken', 'sponsor', 'sport', 'sports', 'spot', 'spots', 'spread',
-                'spreading', 'spring', 'square', 'stable', 'staff', 'stage', 'stages', 'stand', 'standard', 'standards', 'standing', 'stands',
-                'star', 'stared', 'stars', 'start', 'started', 'starting', 'starts', 'state', 'stated', 'statement', 'statements', 'states',
-                'static', 'stating', 'station', 'stations', 'statistical', 'statistics', 'status', 'stay', 'stayed', 'staying', 'steady',
-                'steal', 'steam', 'steel', 'step', 'stepped', 'steps', 'stick', 'still', 'stock', 'stocks', 'stone', 'stood', 'stop',
-                'stopped', 'stopping', 'stops', 'storage', 'store', 'stored', 'stores', 'stories', 'storm', 'story', 'straight', 'strain',
-                'strange', 'stranger', 'strategic', 'strategy', 'stream', 'streaming', 'street', 'streets', 'strength', 'strengthen', 'stress',
-                'stretch', 'strict', 'strictly', 'strike', 'string', 'strip', 'strong', 'stronger', 'strongly', 'struck', 'structural',
-                'structure', 'structured', 'structures', 'struggle', 'stuck', 'student', 'students', 'studied', 'studies', 'studio', 'study',
-                'studying', 'stuff', 'style', 'styles', 'subject', 'subjects', 'submit', 'submitted', 'subsequent', 'subsequently', 'substance',
-                'substantial', 'substantially', 'substitute', 'subtle', 'succeed', 'succeeded', 'success', 'successful', 'successfully',
-                'such', 'sudden', 'suddenly', 'suffer', 'suffered', 'suffering', 'sufficient', 'sufficiently', 'sugar', 'suggest', 'suggested',
-                'suggesting', 'suggestion', 'suggestions', 'suggests', 'suit', 'suitable', 'suite', 'suited', 'suits', 'summary', 'summer',
-                'sun', 'sunday', 'super', 'superior', 'supplement', 'supplied', 'supplier', 'supplies', 'supply', 'support', 'supported',
-                'supporter', 'supporters', 'supporting', 'supports', 'suppose', 'supposed', 'sure', 'surely', 'surface', 'surgery', 'surprise',
-                'surprised', 'surprising', 'surprisingly', 'surround', 'surrounded', 'surrounding', 'survey', 'survival', 'survive', 'survived',
-                'suspect', 'suspected', 'sustainable', 'sweet', 'swim', 'swimming', 'swing', 'switch', 'switched', 'symbol', 'system',
-                'systematic', 'systems', 'table', 'tables', 'tackle', 'tag', 'tail', 'take', 'taken', 'takes', 'taking', 'tale', 'talent',
-                'talk', 'talked', 'talking', 'talks', 'tall', 'tank', 'tap', 'tape', 'target', 'targeted', 'targets', 'task', 'tasks',
-                'taste', 'taught', 'tax', 'taxes', 'tea', 'teach', 'teacher', 'teachers', 'teaches', 'teaching', 'team', 'teams', 'tear',
-                'tears', 'tech', 'technical', 'technically', 'technique', 'techniques', 'technologies', 'technology', 'telephone', 'television',
-                'tell', 'telling', 'tells', 'temperature', 'template', 'temple', 'temporary', 'ten', 'tend', 'tendency', 'tends', 'tennis',
-                'tension', 'term', 'terms', 'terrible', 'territory', 'terror', 'terrorism', 'terrorist', 'test', 'tested', 'testing', 'tests',
-                'text', 'texts', 'than', 'thank', 'thanks', 'that', 'the', 'theater', 'theatre', 'their', 'them', 'theme', 'themes',
-                'themselves', 'then', 'theoretical', 'theory', 'therapy', 'there', 'thereby', 'therefore', 'these', 'they', 'thick', 'thin',
-                'thing', 'things', 'think', 'thinking', 'thinks', 'third', 'thirty', 'this', 'those', 'though', 'thought', 'thoughts',
-                'thousand', 'thousands', 'threat', 'threaten', 'threatened', 'threats', 'three', 'threw', 'through', 'throughout', 'throw',
-                'thrown', 'thursday', 'thus', 'ticket', 'tickets', 'tie', 'tied', 'ties', 'tight', 'till', 'time', 'times', 'timing', 'tiny',
-                'tip', 'tips', 'tire', 'tired', 'tissue', 'title', 'titled', 'titles', 'today', 'together', 'told', 'tomorrow', 'tone',
-                'tongue', 'tonight', 'too', 'took', 'tool', 'tools', 'top', 'topic', 'topics', 'torn', 'total', 'totally', 'touch', 'touched',
-                'tough', 'tour', 'tourism', 'tourist', 'tournament', 'toward', 'towards', 'tower', 'town', 'towns', 'toy', 'toys', 'trace',
-                'track', 'tracked', 'tracking', 'tracks', 'trade', 'traded', 'trading', 'tradition', 'traditional', 'traditionally', 'traffic',
-                'trail', 'train', 'trained', 'training', 'trains', 'transaction', 'transactions', 'transfer', 'transferred', 'transform',
-                'transformation', 'transition', 'translate', 'translated', 'translation', 'transmission', 'transport', 'transportation',
-                'trap', 'trapped', 'trash', 'travel', 'traveled', 'traveling', 'travels', 'treat', 'treated', 'treating', 'treatment',
-                'treatments', 'treats', 'tree', 'trees', 'tremendous', 'trend', 'trends', 'trial', 'trials', 'triangle', 'tribe', 'trick',
-                'tried', 'tries', 'trigger', 'trip', 'trips', 'trouble', 'truck', 'trucks', 'true', 'truly', 'trust', 'trusted', 'truth',
-                'try', 'trying', 'tube', 'tuesday', 'tune', 'tunnel', 'turn', 'turned', 'turning', 'turns', 'twelve', 'twenty', 'twice',
-                'twin', 'two', 'type', 'types', 'typical', 'typically', 'ugly', 'ultimate', 'ultimately', 'unable', 'unaware', 'uncertain',
-                'uncertainty', 'uncle', 'unclear', 'under', 'undergo', 'underground', 'underlying', 'understand', 'understanding', 'understands',
-                'understood', 'undertake', 'undertaken', 'unemployment', 'unexpected', 'unfortunately', 'unhappy', 'uniform', 'union', 'unique',
-                'unit', 'united', 'units', 'unity', 'universal', 'universe', 'university', 'unknown', 'unless', 'unlike', 'unlikely',
-                'unlimited', 'unnecessary', 'unprecedented', 'unusual', 'unwilling', 'update', 'updated', 'updates', 'updating', 'upgrade',
-                'upon', 'upper', 'upset', 'urban', 'urge', 'urged', 'urgent', 'usage', 'use', 'used', 'useful', 'user', 'users', 'uses',
-                'using', 'usual', 'usually', 'utility', 'utilize', 'utilized', 'vacation', 'vaccine', 'valid', 'valley', 'valuable', 'value',
-                'valued', 'values', 'van', 'variable', 'variables', 'variation', 'variations', 'varied', 'varies', 'variety', 'various',
-                'vary', 'varying', 'vast', 'vector', 'vegetable', 'vegetables', 'vehicle', 'vehicles', 'vendor', 'venture', 'venue', 'verbal',
-                'verify', 'version', 'versions', 'versus', 'vertical', 'very', 'vessel', 'veteran', 'veterans', 'via', 'viable', 'vice',
-                'victim', 'victims', 'victory', 'video', 'videos', 'view', 'viewed', 'viewer', 'viewers', 'viewing', 'views', 'village',
-                'violate', 'violated', 'violation', 'violations', 'violence', 'violent', 'viral', 'virtual', 'virtually', 'virtue', 'virus',
-                'visible', 'vision', 'visit', 'visited', 'visiting', 'visitor', 'visitors', 'visits', 'visual', 'vital', 'vitamin', 'vocal',
-                'voice', 'voices', 'volume', 'volumes', 'voluntary', 'volunteer', 'volunteers', 'vote', 'voted', 'voter', 'voters', 'votes',
-                'voting', 'wage', 'wages', 'wait', 'waited', 'waiting', 'wake', 'walk', 'walked', 'walking', 'walks', 'wall', 'walls',
-                'want', 'wanted', 'wanting', 'wants', 'war', 'ward', 'warm', 'warming', 'warn', 'warned', 'warning', 'warrant', 'warranty',
-                'wars', 'wash', 'washed', 'washington', 'waste', 'wasted', 'watch', 'watched', 'watches', 'watching', 'water', 'waters',
-                'wave', 'waves', 'way', 'ways', 'weak', 'weaken', 'weakness', 'wealth', 'wealthy', 'weapon', 'weapons', 'wear', 'wearing',
-                'weather', 'web', 'website', 'websites', 'wedding', 'wednesday', 'week', 'weekend', 'weekly', 'weeks', 'weigh', 'weight',
-                'weird', 'welcome', 'welcomed', 'welfare', 'well', 'went', 'were', 'west', 'western', 'wet', 'what', 'whatever', 'wheel',
-                'wheels', 'when', 'whenever', 'where', 'whereas', 'wherever', 'whether', 'which', 'while', 'whilst', 'white', 'who', 'whole',
-                'wholly', 'whom', 'whose', 'why', 'wide', 'widely', 'wider', 'widespread', 'wife', 'wild', 'wildlife', 'will', 'willing',
-                'willingness', 'win', 'wind', 'window', 'windows', 'wine', 'wing', 'wings', 'winner', 'winners', 'winning', 'wins', 'winter',
-                'wire', 'wisdom', 'wise', 'wish', 'wished', 'wishes', 'with', 'withdraw', 'withdrawal', 'withdrew', 'within', 'without',
-                'witness', 'witnessed', 'witnesses', 'woman', 'women', 'won', 'wonder', 'wondered', 'wonderful', 'wondering', 'wood',
-                'wooden', 'woods', 'word', 'words', 'wore', 'work', 'worked', 'worker', 'workers', 'working', 'works', 'workshop', 'world',
-                'worldwide', 'worn', 'worried', 'worry', 'worse', 'worst', 'worth', 'worthy', 'would', 'wound', 'wounded', 'wrap', 'wrapped',
-                'write', 'writer', 'writers', 'writes', 'writing', 'written', 'wrong', 'wrote', 'yard', 'yards', 'yeah', 'year', 'yearly',
-                'years', 'yell', 'yelled', 'yellow', 'yes', 'yesterday', 'yet', 'yield', 'york', 'you', 'young', 'younger', 'your', 'yours',
-                'yourself', 'youth', 'youtube', 'zero', 'zone', 'zones'
-            ]);
-
-            spellChecker = {
-                dictionary: commonWords,
-                check: function(word) {
-                    const cleaned = word.toLowerCase().replace(/[^a-z]/g, '');
-                    if (cleaned.length <= 2) return true; // Skip short words
-                    if (/^\d+$/.test(word)) return true; // Skip numbers
-                    if (sessionMemory.approvedWords.has(cleaned)) return true;
-                    if (sessionMemory.rejectedWords.has(cleaned)) return false;
-                    return this.dictionary.has(cleaned);
-                }
-            };
+        for (let i = 0; i < uploadedFiles.length; i++) {
+            updateProgress(i + 1);
+            updateFileStatus(i, 'processing');
             
-            console.log('Spell checker initialized with built-in dictionary');
-        }
-
-        async function initializeTesseract() {
-            if (!tesseractWorker) {
-                tesseractWorker = await Tesseract.createWorker({
-                    logger: m => console.log(m)
+            try {
+                const result = await processImage(uploadedFiles[i]);
+                processedBanners.push(result);
+                updateFileStatus(i, result.hasIssues ? 'warning' : 'complete');
+            } catch (error) {
+                console.error('Error processing file:', uploadedFiles[i].name, error);
+                processedBanners.push({
+                    file: uploadedFiles[i],
+                    error: true,
+                    errorMessage: error.message
                 });
-                await tesseractWorker.loadLanguage('eng');
-                await tesseractWorker.initialize('eng');
-            }
-            return tesseractWorker;
-        }
-
-        function setupEventListeners() {
-            const uploadArea = document.getElementById('uploadArea');
-            const fileInput = document.getElementById('fileInput');
-            const processBtn = document.getElementById('processBtn');
-            const resetBtn = document.getElementById('resetBtn');
-            const downloadReportBtn = document.getElementById('downloadReportBtn');
-
-            // Upload events
-            uploadArea.addEventListener('click', () => fileInput.click());
-            
-            uploadArea.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                uploadArea.classList.add('dragging');
-            });
-
-            uploadArea.addEventListener('dragleave', () => {
-                uploadArea.classList.remove('dragging');
-            });
-
-            uploadArea.addEventListener('drop', (e) => {
-                e.preventDefault();
-                uploadArea.classList.remove('dragging');
-                handleFiles(e.dataTransfer.files);
-            });
-
-            fileInput.addEventListener('change', (e) => {
-                handleFiles(e.target.files);
-            });
-
-            processBtn.addEventListener('click', processBatch);
-            resetBtn.addEventListener('click', resetValidator);
-            downloadReportBtn.addEventListener('click', generatePDFReport);
-        }
-
-        function handleFiles(files) {
-            const fileArray = Array.from(files);
-            const validFiles = fileArray.filter(file => {
-                if (!file.type.match(/^image\/(jpeg|jpg|png|gif)$/)) {
-                    console.log('Invalid file type:', file.name);
-                    return false;
-                }
-                if (file.size > 10 * 1024 * 1024) {
-                    console.log('File too large:', file.name);
-                    return false;
-                }
-                return true;
-            });
-
-            if (validFiles.length === 0) {
-                alert('Please upload valid image files (JPG, PNG, GIF) under 10MB');
-                return;
-            }
-
-            // Add to queue
-            uploadedFiles = [...uploadedFiles, ...validFiles].slice(0, 12); // Max 12 files
-            updateFileQueue();
-        }
-
-        function updateFileQueue() {
-            const queueEl = document.getElementById('fileQueue');
-            const processBtn = document.getElementById('processBtn');
-
-            if (uploadedFiles.length === 0) {
-                queueEl.innerHTML = '<div class="queue-empty">No files uploaded yet</div>';
-                processBtn.disabled = true;
-            } else {
-                queueEl.innerHTML = uploadedFiles.map((file, index) => {
-                    // Try to extract dimensions from filename or we'll get them during processing
-                    const dimensionMatch = file.name.match(/(\d{2,4})x(\d{2,4})/);
-                    let iabName = '';
-                    
-                    if (dimensionMatch) {
-                        const width = parseInt(dimensionMatch[1]);
-                        const height = parseInt(dimensionMatch[2]);
-                        const iabMatch = IAB_SPECS.fixedSizes.find(spec => 
-                            spec.width === width && spec.height === height
-                        );
-                        if (iabMatch) {
-                            iabName = `<span class="iab-badge">${iabMatch.name}</span>`;
-                        }
-                    }
-                    
-                    return `
-                        <div class="file-item" data-index="${index}">
-                            <div class="file-info">
-                                <span class="file-name">${file.name}</span>
-                                ${iabName}
-                            </div>
-                            <div class="file-status">
-                                <span class="status-icon status-pending">✓</span>
-                                <span>Uploaded</span>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-                processBtn.disabled = false;
+                updateFileStatus(i, 'error');
             }
         }
 
-        async function processBatch() {
-            if (uploadedFiles.length === 0) return;
+        displayResults();
+    }
 
-            // Reset state
-            processedBanners = [];
-            sessionMemory = {
-                approvedWords: new Set(),
-                rejectedWords: new Set()
+    function updateProgress(current) {
+        document.getElementById('currentFile').textContent = current;
+        const progress = (current / uploadedFiles.length) * 100;
+        document.getElementById('progressBar').style.width = progress + '%';
+    }
+
+    function updateFileStatus(index, status) {
+        const fileItem = document.querySelector(`.file-item[data-index="${index}"]`);
+        if (fileItem) {
+            const statusEl = fileItem.querySelector('.file-status');
+            const icons = {
+                uploaded: '✓',
+                processing: '<span class="spinner"></span>',
+                complete: '✓',
+                warning: '⚠',
+                error: '✗'
             };
+            statusEl.innerHTML = `
+                <span class="status-icon status-${status}">${icons[status]}</span>
+                <span>${status.charAt(0).toUpperCase() + status.slice(1)}</span>
+            `;
+        }
+    }
 
-            // Show processing section
-            document.getElementById('processingSection').classList.add('active');
-            document.getElementById('totalFiles').textContent = uploadedFiles.length;
+    async function processImage(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
             
-            // Hide upload section buttons
-            document.getElementById('processBtn').disabled = true;
-
-            // Initialize Tesseract
-            const worker = await initializeTesseract();
-
-            // Process each file
-            for (let i = 0; i < uploadedFiles.length; i++) {
-                updateProgress(i + 1);
-                updateFileStatus(i, 'processing');
+            reader.onload = async (e) => {
+                const img = new Image();
                 
-                try {
-                    const result = await processImage(uploadedFiles[i], worker);
-                    processedBanners.push(result);
-                    updateFileStatus(i, result.hasIssues ? 'warning' : 'complete');
-                } catch (error) {
-                    console.error('Error processing file:', uploadedFiles[i].name, error);
-                    processedBanners.push({
-                        file: uploadedFiles[i],
-                        error: true,
-                        errorMessage: error.message
-                    });
-                    updateFileStatus(i, 'error');
-                }
-            }
+                img.onload = async () => {
+                    const result = {
+                        file: file,
+                        fileName: file.name,
+                        width: img.width,
+                        height: img.height,
+                        fileSize: file.size,
+                        format: file.type.split('/')[1].toUpperCase(),
+                        imageDataUrl: e.target.result,
+                        iabIssues: [],
+                        typos: [],
+                        hasIssues: false,
+                        detectedText: ''
+                    };
 
-            // Show results
-            displayResults();
-        }
+                    const iabMatch = IAB_SPECS.fixedSizes.find(spec => 
+                        spec.width === img.width && spec.height === img.height
+                    );
 
-        function updateProgress(current) {
-            document.getElementById('currentFile').textContent = current;
-            const progress = (current / uploadedFiles.length) * 100;
-            document.getElementById('progressBar').style.width = progress + '%';
-        }
-
-        function updateFileStatus(index, status) {
-            const fileItem = document.querySelector(`.file-item[data-index="${index}"]`);
-            if (fileItem) {
-                const statusEl = fileItem.querySelector('.file-status');
-                const icons = {
-                    uploaded: '✓',
-                    processing: '<span class="spinner"></span>',
-                    complete: '✓',
-                    warning: '⚠',
-                    error: '✗'
-                };
-                statusEl.innerHTML = `
-                    <span class="status-icon status-${status}">${icons[status]}</span>
-                    <span>${status.charAt(0).toUpperCase() + status.slice(1)}</span>
-                `;
-            }
-        }
-
-        async function processImage(file, worker) {
-            return new Promise((resolve) => {
-                const reader = new FileReader();
-                
-                reader.onload = async (e) => {
-                    const img = new Image();
-                    
-                    img.onload = async () => {
-                        const result = {
-                            file: file,
-                            fileName: file.name,
-                            width: img.width,
-                            height: img.height,
-                            fileSize: file.size,
-                            format: file.type.split('/')[1].toUpperCase(),
-                            imageDataUrl: e.target.result,
-                            iabIssues: [],
-                            typos: [],
-                            hasIssues: false
-                        };
-
-                        // Check IAB compliance (file size first)
-                        const iabMatch = IAB_SPECS.fixedSizes.find(spec => 
-                            spec.width === img.width && spec.height === img.height
-                        );
-
-                        if (iabMatch) {
-                            result.iabStandard = iabMatch.name;
-                            const fileSizeKB = file.size / 1024;
-                            
-                            if (fileSizeKB > iabMatch.maxKB) {
-                                result.iabIssues.push({
-                                    type: 'fileSize',
-                                    message: `File size (${(fileSizeKB).toFixed(1)}KB) exceeds IAB limit (${iabMatch.maxKB}KB)`
-                                });
-                                result.hasIssues = true;
-                            }
-                        } else {
+                    if (iabMatch) {
+                        result.iabStandard = iabMatch.name;
+                        const fileSizeKB = file.size / 1024;
+                        
+                        if (fileSizeKB > iabMatch.maxKB) {
                             result.iabIssues.push({
-                                type: 'dimensions',
-                                message: `Non-standard dimensions: ${img.width}×${img.height}px`
+                                type: 'fileSize',
+                                message: `File size (${(fileSizeKB).toFixed(1)}KB) exceeds IAB limit (${iabMatch.maxKB}KB)`
                             });
                             result.hasIssues = true;
                         }
+                    } else {
+                        result.iabIssues.push({
+                            type: 'dimensions',
+                            message: `Non-standard dimensions: ${img.width}×${img.height}px`
+                        });
+                        result.hasIssues = true;
+                    }
 
-                        // Only do OCR if file size check passes
-                        if (!result.iabIssues.some(issue => issue.type === 'fileSize')) {
-                            try {
-                                const { data: { text } } = await worker.recognize(e.target.result);
+                    if (!result.iabIssues.some(issue => issue.type === 'fileSize') && GOOGLE_API_KEY) {
+                        try {
+                            const { text, confidence } = await detectTextWithGoogleVision(e.target.result);
+                            
+                            if (text && confidence > 50) {
                                 result.extractedText = text;
+                                result.detectedText = text;
                                 
-                                // Check for typos
-                                const words = text.toLowerCase().match(/\b[a-z]+\b/g) || [];
+                                const cleanText = text.replace(/[^\w\s]/gi, ' ');
+                                const words = cleanText.toLowerCase().match(/\b[a-z]{2,}\b/g) || [];
                                 const uniqueWords = [...new Set(words)];
                                 
+                                console.log('Unique words found:', uniqueWords);
+                                
+                                const brandExceptions = new Set(['youtube', 'google', 'facebook', 'instagram', 'twitter', 'tiktok', 'linkedin', 'spotify', 'netflix', 'amazon', 'www', 'com', 'org', 'net', 'http', 'https']);
+                                
                                 for (const word of uniqueWords) {
-                                    if (!sessionMemory.approvedWords.has(word) && 
+                                    if (!brandExceptions.has(word) &&
+                                        !sessionMemory.approvedWords.has(word) && 
                                         !sessionMemory.rejectedWords.has(word) &&
                                         !spellChecker.check(word)) {
                                         result.typos.push(word);
                                         result.hasIssues = true;
                                     }
                                 }
-                            } catch (error) {
-                                console.error('OCR error:', error);
                             }
+                        } catch (error) {
+                            console.error('Text detection error:', error);
                         }
+                    }
 
-                        resolve(result);
-                    };
-                    
-                    img.src = e.target.result;
+                    resolve(result);
                 };
                 
-                reader.readAsDataURL(file);
-            });
-        }
-
-        function displayResults() {
-            // Hide processing, show results
-            document.getElementById('processingSection').classList.remove('active');
-            document.getElementById('resultsSection').classList.add('active');
-            document.getElementById('actionFooter').style.display = 'flex';
-
-            // Calculate summary
-            const total = processedBanners.length;
-            const passed = processedBanners.filter(b => !b.hasIssues && !b.error).length;
-            const warnings = processedBanners.filter(b => b.hasIssues && !b.error).length;
-            const failed = processedBanners.filter(b => b.error).length;
-
-            // Update summary cards
-            document.getElementById('totalCount').textContent = total;
-            document.getElementById('passCount').textContent = passed;
-            document.getElementById('warningCount').textContent = warnings;
-            document.getElementById('failCount').textContent = failed;
-
-            // Display issues
-            const issuesContainer = document.getElementById('issuesContainer');
-            
-            if (warnings === 0 && failed === 0) {
-                issuesContainer.innerHTML = `
-                    <div class="no-issues">
-                        <div class="no-issues-icon">✅</div>
-                        <div class="no-issues-text">All banners passed validation!</div>
-                        <div class="no-issues-subtext">No issues found in any of the ${total} banners.</div>
-                    </div>
-                `;
-            } else {
-                let html = '';
-
-                // File size issues (priority)
-                const sizeIssues = processedBanners.filter(b => 
-                    b.iabIssues?.some(i => i.type === 'fileSize')
-                );
-                
-                if (sizeIssues.length > 0) {
-                    html += `
-                        <div class="issue-category">
-                            <div class="category-header">
-                                <span class="status-icon status-error">✗</span>
-                                File Size Issues (${sizeIssues.length})
-                            </div>
-                            ${sizeIssues.map(banner => `
-                                <div class="issue-item">
-                                    <strong>${banner.fileName}</strong>
-                                    ${banner.iabIssues.filter(i => i.type === 'fileSize')
-                                        .map(i => `<div style="margin-top: var(--space-1); color: var(--color-gray-600); font-size: var(--font-size-sm);">${i.message}</div>`)
-                                        .join('')}
-                                </div>
-                            `).join('')}
-                        </div>
-                    `;
-                }
-
-                // Dimension issues
-                const dimIssues = processedBanners.filter(b => 
-                    b.iabIssues?.some(i => i.type === 'dimensions')
-                );
-                
-                if (dimIssues.length > 0) {
-                    html += `
-                        <div class="issue-category">
-                            <div class="category-header">
-                                <span class="status-icon status-warning">⚠</span>
-                                Dimension Issues (${dimIssues.length})
-                            </div>
-                            ${dimIssues.map(banner => `
-                                <div class="issue-item">
-                                    <strong>${banner.fileName}</strong>
-                                    ${banner.iabIssues.filter(i => i.type === 'dimensions')
-                                        .map(i => `<div style="margin-top: var(--space-1); color: var(--color-gray-600); font-size: var(--font-size-sm);">${i.message}</div>`)
-                                        .join('')}
-                                </div>
-                            `).join('')}
-                        </div>
-                    `;
-                }
-
-                // Collect unique typos
-                const typoMap = new Map();
-                processedBanners.forEach(banner => {
-                    if (banner.typos && banner.typos.length > 0) {
-                        banner.typos.forEach(typo => {
-                            if (!typoMap.has(typo)) {
-                                typoMap.set(typo, []);
-                            }
-                            typoMap.get(typo).push(banner.fileName);
-                        });
-                    }
-                });
-
-                if (typoMap.size > 0) {
-                    html += `
-                        <div class="typo-review-section">
-                            <div class="category-header">
-                                <span class="status-icon status-warning">⚠</span>
-                                Potential Typos to Review
-                            </div>
-                            ${Array.from(typoMap.entries()).map(([word, files], index) => `
-                                <div class="typo-item" id="typo-${index}" data-word="${word}">
-                                    <div class="typo-info">
-                                        <div class="typo-word">"${word}"</div>
-                                        <div class="typo-occurrence">
-                                            Found in ${files.length} banner${files.length > 1 ? 's' : ''}: ${files.join(', ')}
-                                            <span class="view-banners-link" onclick="showBannerPreview('${word}', ${index})">View banners</span>
-                                        </div>
-                                    </div>
-                                    <div class="typo-actions">
-                                        <button class="btn btn-sm btn-success" onclick="approveWord('${word}', ${index})">
-                                            ✓ Correct
-                                        </button>
-                                        <button class="btn btn-sm btn-danger" onclick="rejectWord('${word}', ${index})">
-                                            ✗ Is Typo
-                                        </button>
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    `;
-                }
-
-                issuesContainer.innerHTML = html || '<div class="no-issues">No issues found!</div>';
-            }
-        }
-
-        function approveWord(word, index) {
-            sessionMemory.approvedWords.add(word);
-            const item = document.getElementById(`typo-${index}`);
-            item.classList.add('approved');
-            item.querySelector('.typo-actions').innerHTML = 
-                '<span style="color: var(--color-success);">✓ Approved</span>';
-        }
-
-        function rejectWord(word, index) {
-            sessionMemory.rejectedWords.add(word);
-            const item = document.getElementById(`typo-${index}`);
-            item.classList.add('rejected');
-            item.querySelector('.typo-actions').innerHTML = 
-                '<span style="color: var(--color-danger);">✗ Marked as typo</span>';
-        }
-
-        async function generatePDFReport() {
-            const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF();
-            
-            // Add title
-            pdf.setFontSize(20);
-            pdf.text('Banner Validation Report', 20, 20);
-            
-            pdf.setFontSize(10);
-            pdf.text(`Generated: ${new Date().toLocaleString()}`, 20, 30);
-            pdf.text('Malka Media Group LLC', 20, 35);
-            
-            // Add summary
-            let y = 50;
-            pdf.setFontSize(14);
-            pdf.text('Summary', 20, y);
-            y += 10;
-            
-            pdf.setFontSize(10);
-            pdf.text(`Total Banners: ${processedBanners.length}`, 30, y);
-            y += 7;
-            pdf.text(`Passed: ${processedBanners.filter(b => !b.hasIssues && !b.error).length}`, 30, y);
-            y += 7;
-            pdf.text(`Issues Found: ${processedBanners.filter(b => b.hasIssues).length}`, 30, y);
-            y += 15;
-            
-            // Add details for each banner
-            pdf.setFontSize(14);
-            pdf.text('Banner Details', 20, y);
-            y += 10;
-            
-            processedBanners.forEach(banner => {
-                if (y > 250) {
-                    pdf.addPage();
-                    y = 20;
-                }
-                
-                pdf.setFontSize(11);
-                pdf.setFont(undefined, 'bold');
-                
-                // Add IAB name if available
-                let displayName = banner.fileName;
-                if (banner.iabStandard) {
-                    displayName = `${banner.fileName} (${banner.iabStandard})`;
-                }
-                
-                pdf.text(displayName, 20, y);
-                pdf.setFont(undefined, 'normal');
-                y += 7;
-                
-                pdf.setFontSize(9);
-                pdf.text(`Dimensions: ${banner.width}×${banner.height}px`, 30, y);
-                y += 5;
-                pdf.text(`File Size: ${(banner.fileSize / 1024).toFixed(1)}KB`, 30, y);
-                y += 5;
-                
-                if (banner.iabIssues && banner.iabIssues.length > 0) {
-                    banner.iabIssues.forEach(issue => {
-                        pdf.text(`• ${issue.message}`, 30, y);
-                        y += 5;
-                    });
-                }
-                
-                if (sessionMemory.rejectedWords.size > 0) {
-                    const bannersTypos = Array.from(sessionMemory.rejectedWords)
-                        .filter(word => banner.typos?.includes(word));
-                    if (bannersTypos.length > 0) {
-                        pdf.text(`• Typos: ${bannersTypos.join(', ')}`, 30, y);
-                        y += 5;
-                    }
-                }
-                
-                y += 5;
-            });
-            
-            // Save PDF
-            pdf.save(`banner-validation-report-${Date.now()}.pdf`);
-        }
-
-        function showBannerPreview(word, index) {
-            const modal = document.getElementById('previewModal');
-            const grid = document.getElementById('bannerPreviewGrid');
-            const title = document.getElementById('previewTitle');
-            const actions = document.getElementById('previewActions');
-            
-            // Set title
-            title.textContent = `Banners containing "${word}"`;
-            
-            // Find banners with this typo
-            const bannersWithTypo = processedBanners.filter(banner => 
-                banner.typos && banner.typos.includes(word)
-            );
-            
-            console.log('Banners with typo:', bannersWithTypo); // Debug log
-            
-            // Display banner previews
-            if (bannersWithTypo.length > 0 && bannersWithTypo[0].imageDataUrl) {
-                grid.innerHTML = bannersWithTypo.map(banner => `
-                    <div class="banner-preview-item">
-                        <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
-                        <div class="banner-preview-name">${banner.fileName}</div>
-                        ${banner.iabStandard ? `<div class="iab-badge" style="margin-top: 4px;">${banner.iabStandard}</div>` : ''}
-                    </div>
-                `).join('');
-            } else {
-                grid.innerHTML = '<p>Preview not available - image data may not have been loaded properly.</p>';
-            }
-            
-            // Add actions
-            actions.innerHTML = `
-                <button class="btn btn-success" onclick="approveWordFromPreview('${word}', ${index})">
-                    ✓ Correct - Not a Typo
-                </button>
-                <button class="btn btn-danger" onclick="rejectWordFromPreview('${word}', ${index})">
-                    ✗ This is a Typo
-                </button>
-            `;
-            
-            // Show modal
-            modal.classList.add('active');
-        }
-
-        function closePreviewModal() {
-            document.getElementById('previewModal').classList.remove('active');
-        }
-
-        function approveWordFromPreview(word, index) {
-            approveWord(word, index);
-            closePreviewModal();
-        }
-
-        function rejectWordFromPreview(word, index) {
-            rejectWord(word, index);
-            closePreviewModal();
-        }
-
-        // Close modal on background click
-        document.getElementById('previewModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closePreviewModal();
-            }
-        });
-
-        function resetValidator() {
-            uploadedFiles = [];
-            processedBanners = [];
-            sessionMemory = {
-                approvedWords: new Set(),
-                rejectedWords: new Set()
+                img.src = e.target.result;
             };
             
-            document.getElementById('fileQueue').innerHTML = '<div class="queue-empty">No files uploaded yet</div>';
-            document.getElementById('processBtn').disabled = true;
-            document.getElementById('resultsSection').classList.remove('active');
-            document.getElementById('actionFooter').style.display = 'none';
-            document.getElementById('fileInput').value = '';
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function displayResults() {
+        document.getElementById('processingSection').classList.remove('active');
+        document.getElementById('resultsSection').classList.add('active');
+        document.getElementById('actionFooter').style.display = 'flex';
+
+        const total = processedBanners.length;
+        const passed = processedBanners.filter(b => !b.hasIssues && !b.error).length;
+        const warnings = processedBanners.filter(b => b.hasIssues && !b.error).length;
+        const failed = processedBanners.filter(b => b.error).length;
+
+        document.getElementById('totalCount').textContent = total;
+        document.getElementById('passCount').textContent = passed;
+        document.getElementById('warningCount').textContent = warnings;
+        document.getElementById('failCount').textContent = failed;
+
+        const issuesContainer = document.getElementById('issuesContainer');
+        
+        if (warnings === 0 && failed === 0) {
+            issuesContainer.innerHTML = `
+                <div class="no-issues">
+                    <div class="no-issues-icon">✅</div>
+                    <div class="no-issues-text">All banners passed validation!</div>
+                    <div class="no-issues-subtext">No issues found in any of the ${total} banners.</div>
+                </div>
+            `;
+        } else {
+            let html = '';
+
+            const sizeIssues = processedBanners.filter(b => 
+                b.iabIssues?.some(i => i.type === 'fileSize')
+            );
             
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            if (sizeIssues.length > 0) {
+                html += `
+                    <div class="issue-category">
+                        <div class="category-header">
+                            <span class="status-icon status-error">✗</span>
+                            File Size Issues (${sizeIssues.length})
+                        </div>
+                        ${sizeIssues.map(banner => `
+                            <div class="issue-item">
+                                <strong>${banner.fileName}</strong>
+                                ${banner.iabIssues.filter(i => i.type === 'fileSize')
+                                    .map(i => `<div style="margin-top: var(--space-1); color: var(--color-gray-600); font-size: var(--font-size-sm);">${i.message}</div>`)
+                                    .join('')}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            const dimIssues = processedBanners.filter(b => 
+                b.iabIssues?.some(i => i.type === 'dimensions')
+            );
+            
+            if (dimIssues.length > 0) {
+                html += `
+                    <div class="issue-category">
+                        <div class="category-header">
+                            <span class="status-icon status-warning">⚠</span>
+                            Dimension Issues (${dimIssues.length})
+                        </div>
+                        ${dimIssues.map(banner => `
+                            <div class="issue-item">
+                                <strong>${banner.fileName}</strong>
+                                ${banner.iabIssues.filter(i => i.type === 'dimensions')
+                                    .map(i => `<div style="margin-top: var(--space-1); color: var(--color-gray-600); font-size: var(--font-size-sm);">${i.message}</div>`)
+                                    .join('')}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            const typoMap = new Map();
+            processedBanners.forEach(banner => {
+                if (banner.typos && banner.typos.length > 0) {
+                    banner.typos.forEach(typo => {
+                        if (!typoMap.has(typo)) {
+                            typoMap.set(typo, []);
+                        }
+                        typoMap.get(typo).push(banner.fileName);
+                    });
+                }
+            });
+
+            if (typoMap.size > 0) {
+                html += `
+                    <div class="typo-review-section">
+                        <div class="category-header">
+                            <span class="status-icon status-warning">⚠</span>
+                            Potential Typos to Review
+                        </div>
+                        ${Array.from(typoMap.entries()).map(([word, files], index) => `
+                            <div class="typo-item" id="typo-${index}" data-word="${word}">
+                                <div class="typo-info">
+                                    <div class="typo-word">"${word}"</div>
+                                    <div class="typo-occurrence">
+                                        Found in ${files.length} banner${files.length > 1 ? 's' : ''}: ${files.join(', ')}
+                                        <span class="view-banners-link" onclick="showBannerPreview('${word}', ${index})">View banners</span>
+                                    </div>
+                                </div>
+                                <div class="typo-actions">
+                                    <button class="btn btn-sm btn-success" onclick="approveWord('${word}', ${index})">
+                                        ✓ Correct
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="rejectWord('${word}', ${index})">
+                                        ✗ Is Typo
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            issuesContainer.innerHTML = html || '<div class="no-issues">No issues found!</div>';
         }
-    </script>
+    }
+
+    function approveWord(word, index) {
+        sessionMemory.approvedWords.add(word);
+        const item = document.getElementById(`typo-${index}`);
+        item.classList.add('approved');
+        item.querySelector('.typo-actions').innerHTML = 
+            '<span style="color: var(--color-success);">✓ Approved</span>';
+    }
+
+    function rejectWord(word, index) {
+        sessionMemory.rejectedWords.add(word);
+        const item = document.getElementById(`typo-${index}`);
+        item.classList.add('rejected');
+        item.querySelector('.typo-actions').innerHTML = 
+            '<span style="color: var(--color-danger);">✗ Marked as typo</span>';
+    }
+
+    async function generatePDFReport() {
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF();
+        
+        pdf.setFontSize(20);
+        pdf.text('Banner Validation Report', 20, 20);
+        
+        pdf.setFontSize(10);
+        pdf.text(`Generated: ${new Date().toLocaleString()}`, 20, 30);
+        pdf.text('Malka Media Group LLC', 20, 35);
+        
+        let y = 50;
+        pdf.setFontSize(14);
+        pdf.text('Summary', 20, y);
+        y += 10;
+        
+        pdf.setFontSize(10);
+        pdf.text(`Total Banners: ${processedBanners.length}`, 30, y);
+        y += 7;
+        pdf.text(`Passed: ${processedBanners.filter(b => !b.hasIssues && !b.error).length}`, 30, y);
+        y += 7;
+        pdf.text(`Issues Found: ${processedBanners.filter(b => b.hasIssues).length}`, 30, y);
+        y += 15;
+        
+        pdf.setFontSize(14);
+        pdf.text('Banner Details', 20, y);
+        y += 10;
+        
+        processedBanners.forEach(banner => {
+            if (y > 250) {
+                pdf.addPage();
+                y = 20;
+            }
+            
+            pdf.setFontSize(11);
+            pdf.setFont(undefined, 'bold');
+            
+            let displayName = banner.fileName;
+            if (banner.iabStandard) {
+                displayName = `${banner.fileName} (${banner.iabStandard})`;
+            }
+            
+            pdf.text(displayName, 20, y);
+            pdf.setFont(undefined, 'normal');
+            y += 7;
+            
+            pdf.setFontSize(9);
+            pdf.text(`Dimensions: ${banner.width}×${banner.height}px`, 30, y);
+            y += 5;
+            pdf.text(`File Size: ${(banner.fileSize / 1024).toFixed(1)}KB`, 30, y);
+            y += 5;
+            
+            if (banner.iabIssues && banner.iabIssues.length > 0) {
+                banner.iabIssues.forEach(issue => {
+                    pdf.text(`• ${issue.message}`, 30, y);
+                    y += 5;
+                });
+            }
+            
+            if (sessionMemory.rejectedWords.size > 0) {
+                const bannersTypos = Array.from(sessionMemory.rejectedWords)
+                    .filter(word => banner.typos?.includes(word));
+                if (bannersTypos.length > 0) {
+                    pdf.text(`• Typos: ${bannersTypos.join(', ')}`, 30, y);
+                    y += 5;
+                }
+            }
+            
+            y += 5;
+        });
+        
+        pdf.save(`banner-validation-report-${Date.now()}.pdf`);
+    }
+
+    function showBannerPreview(word, index) {
+        const modal = document.getElementById('previewModal');
+        const grid = document.getElementById('bannerPreviewGrid');
+        const title = document.getElementById('previewTitle');
+        const actions = document.getElementById('previewActions');
+        
+        title.textContent = `Banners containing "${word}"`;
+        
+        const bannersWithTypo = processedBanners.filter(banner => 
+            banner.typos && banner.typos.includes(word)
+        );
+        
+        grid.innerHTML = bannersWithTypo.map(banner => `
+            <div class="banner-preview-item">
+                <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
+                <div class="banner-preview-name">${banner.fileName}</div>
+                ${banner.iabStandard ? `<div class="iab-badge" style="margin-top: 4px;">${banner.iabStandard}</div>` : ''}
+                ${banner.detectedText ? `<div style="margin-top: 8px; padding: 8px; background: #f3f4f6; border-radius: 4px; font-size: 11px; color: #4b5563; text-align: left;"><strong>Detected text:</strong> "${banner.detectedText.substring(0, 100)}${banner.detectedText.length > 100 ? '...' : ''}"</div>` : ''}
+            </div>
+        `).join('');
+        
+        actions.innerHTML = `
+            <button class="btn btn-success" onclick="approveWordFromPreview('${word}', ${index})">
+                ✓ Correct - Not a Typo
+            </button>
+            <button class="btn btn-danger" onclick="rejectWordFromPreview('${word}', ${index})">
+                ✗ This is a Typo
+            </button>
+        `;
+        
+        modal.classList.add('active');
+    }
+
+    function closePreviewModal() {
+        document.getElementById('previewModal').classList.remove('active');
+    }
+
+    function approveWordFromPreview(word, index) {
+        approveWord(word, index);
+        closePreviewModal();
+    }
+
+    function rejectWordFromPreview(word, index) {
+        rejectWord(word, index);
+        closePreviewModal();
+    }
+
+    document.getElementById('previewModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closePreviewModal();
+        }
+    });
+
+    function changeApiKey() {
+        localStorage.removeItem('gcv_api_key');
+        if (showApiKeyPrompt()) {
+            alert('API key updated successfully. You can now process a new batch.');
+        }
+    }
+
+    function resetValidator() {
+        uploadedFiles = [];
+        processedBanners = [];
+        sessionMemory = {
+            approvedWords: new Set(),
+            rejectedWords: new Set()
+        };
+        
+        document.getElementById('fileQueue').innerHTML = '<div class="queue-empty">No files uploaded yet</div>';
+        document.getElementById('processBtn').disabled = true;
+        document.getElementById('resultsSection').classList.remove('active');
+        document.getElementById('actionFooter').style.display = 'none';
+        document.getElementById('fileInput').value = '';
+        
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+</script>
 </body>
 </html>
