@@ -200,6 +200,19 @@
             flex: 1;
         }
 
+        .file-name {
+            flex: 1;
+        }
+
+        .iab-badge {
+            background: #ecfdf5;
+            color: var(--color-success);
+            padding: 2px 8px;
+            border-radius: var(--border-radius-sm);
+            font-size: var(--font-size-xs);
+            font-weight: 600;
+        }
+
         .file-status {
             display: flex;
             align-items: center;
@@ -1080,17 +1093,35 @@
                 queueEl.innerHTML = '<div class="queue-empty">No files uploaded yet</div>';
                 processBtn.disabled = true;
             } else {
-                queueEl.innerHTML = uploadedFiles.map((file, index) => `
-                    <div class="file-item" data-index="${index}">
-                        <div class="file-info">
-                            <span>${file.name}</span>
+                queueEl.innerHTML = uploadedFiles.map((file, index) => {
+                    // Try to extract dimensions from filename or we'll get them during processing
+                    const dimensionMatch = file.name.match(/(\d{2,4})x(\d{2,4})/);
+                    let iabName = '';
+                    
+                    if (dimensionMatch) {
+                        const width = parseInt(dimensionMatch[1]);
+                        const height = parseInt(dimensionMatch[2]);
+                        const iabMatch = IAB_SPECS.fixedSizes.find(spec => 
+                            spec.width === width && spec.height === height
+                        );
+                        if (iabMatch) {
+                            iabName = `<span class="iab-badge">${iabMatch.name}</span>`;
+                        }
+                    }
+                    
+                    return `
+                        <div class="file-item" data-index="${index}">
+                            <div class="file-info">
+                                <span class="file-name">${file.name}</span>
+                                ${iabName}
+                            </div>
+                            <div class="file-status">
+                                <span class="status-icon status-pending">✓</span>
+                                <span>Uploaded</span>
+                            </div>
                         </div>
-                        <div class="file-status">
-                            <span class="status-icon status-pending">✓</span>
-                            <span>Uploaded</span>
-                        </div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
                 processBtn.disabled = false;
             }
         }
@@ -1422,7 +1453,14 @@
                 
                 pdf.setFontSize(11);
                 pdf.setFont(undefined, 'bold');
-                pdf.text(banner.fileName, 20, y);
+                
+                // Add IAB name if available
+                let displayName = banner.fileName;
+                if (banner.iabStandard) {
+                    displayName = `${banner.fileName} (${banner.iabStandard})`;
+                }
+                
+                pdf.text(displayName, 20, y);
                 pdf.setFont(undefined, 'normal');
                 y += 7;
                 
@@ -1469,13 +1507,20 @@
                 banner.typos && banner.typos.includes(word)
             );
             
+            console.log('Banners with typo:', bannersWithTypo); // Debug log
+            
             // Display banner previews
-            grid.innerHTML = bannersWithTypo.map(banner => `
-                <div class="banner-preview-item">
-                    <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
-                    <div class="banner-preview-name">${banner.fileName}</div>
-                </div>
-            `).join('');
+            if (bannersWithTypo.length > 0 && bannersWithTypo[0].imageDataUrl) {
+                grid.innerHTML = bannersWithTypo.map(banner => `
+                    <div class="banner-preview-item">
+                        <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
+                        <div class="banner-preview-name">${banner.fileName}</div>
+                        ${banner.iabStandard ? `<div class="iab-badge" style="margin-top: 4px;">${banner.iabStandard}</div>` : ''}
+                    </div>
+                `).join('');
+            } else {
+                grid.innerHTML = '<p>Preview not available - image data may not have been loaded properly.</p>';
+            }
             
             // Add actions
             actions.innerHTML = `
