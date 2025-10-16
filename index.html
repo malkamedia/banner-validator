@@ -748,25 +748,6 @@
         rejectedWords: new Set()
     };
     let spellChecker = null;
-    let GOOGLE_API_KEY = null;
-    
-    // Configuration section for API key
-    function showApiKeyPrompt() {
-        const existingKey = localStorage.getItem('gcv_api_key');
-        if (existingKey) {
-            GOOGLE_API_KEY = existingKey;
-            return true;
-        }
-        
-        const key = prompt('Please enter your Google Cloud Vision API key:\n\nIf you don\'t have one:\n1. Go to https://console.cloud.google.com\n2. Enable Cloud Vision API\n3. Create credentials (API Key)\n4. Restrict it to Cloud Vision API for security');
-        
-        if (key) {
-            GOOGLE_API_KEY = key;
-            localStorage.setItem('gcv_api_key', key);
-            return true;
-        }
-        return false;
-    }
     
     // IAB Specifications
     const IAB_SPECS = {
@@ -788,14 +769,10 @@
     };
 
     // Initialize
-    document.addEventListener('DOMContentLoaded', async () => {
-        // Check for API key
-        if (!showApiKeyPrompt()) {
-            alert('Google Cloud Vision API key is required for text detection. The tool will work for IAB validation only.');
-        }
-        await initializeSpellChecker();
-        setupEventListeners();
-    });
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initializeSpellChecker();
+            setupEventListeners();
+        });
 
     async function initializeSpellChecker() {
         // Common English words dictionary
@@ -1376,13 +1353,6 @@ async function detectTextWithGoogleVision(imageDataUrl) {
             closePreviewModal();
         }
     });
-
-    function changeApiKey() {
-        localStorage.removeItem('gcv_api_key');
-        if (showApiKeyPrompt()) {
-            alert('API key updated successfully. You can now process a new batch.');
-        }
-    }
 
     function resetValidator() {
         uploadedFiles = [];
