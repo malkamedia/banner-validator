@@ -1,8 +1,21 @@
 exports.handler = async (event, context) => {
-  const GOOGLE_API_KEY = process.env.GOOGLE_VISION_API_KEY; // Set in Netlify dashboard
+  const GOOGLE_API_KEY = process.env.GOOGLE_VISION_API_KEY;
+  
+  // CORS headers
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Content-Type': 'application/json'
+  };
+  
+  // Handle preflight requests
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers, body: '' };
+  }
   
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
+    return { statusCode: 405, headers, body: 'Method Not Allowed' };
   }
   
   try {
@@ -20,14 +33,18 @@ exports.handler = async (event, context) => {
     });
     
     const data = await response.json();
+    
     return {
       statusCode: 200,
+      headers,
       body: JSON.stringify(data)
     };
   } catch (error) {
+    console.error('Function error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Failed to process image' })
+      headers,
+      body: JSON.stringify({ error: 'Failed to process image', details: error.message })
     };
   }
 };
