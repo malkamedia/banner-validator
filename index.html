@@ -774,41 +774,106 @@
             setupEventListeners();
         });
 
-    async function initializeSpellChecker() {
-        // Common English words dictionary
-        const commonWords = new Set([
-            // Articles, pronouns, prepositions
-            'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as',
-            'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their',
-            'this', 'that', 'these', 'those', 'which', 'who', 'whom', 'whose', 'what', 'when', 'where', 'why', 'how',
-            // Common verbs
-            'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'shall',
-            'get', 'got', 'make', 'made', 'go', 'went', 'gone', 'take', 'took', 'taken', 'come', 'came', 'see', 'saw', 'seen', 'know', 'knew', 'known',
-            // Common nouns
-            'time', 'year', 'years', 'people', 'way', 'day', 'days', 'man', 'men', 'woman', 'women', 'thing', 'things', 'child', 'children',
-            'world', 'life', 'home', 'water', 'room', 'family', 'country', 'school', 'state', 'business', 'company', 'money',
-            // Common adjectives
-            'good', 'new', 'first', 'last', 'long', 'great', 'little', 'own', 'other', 'old', 'right', 'big', 'high', 'different', 'small',
-            'large', 'next', 'early', 'young', 'important', 'few', 'public', 'bad', 'same', 'able', 'free', 'best', 'better',
-            // Technology and marketing terms
-            'online', 'digital', 'internet', 'website', 'web', 'email', 'click', 'download', 'upload', 'share', 'link', 'video', 'image',
-            'social', 'media', 'network', 'sale', 'offer', 'discount', 'price', 'shop', 'store', 'product', 'service', 'customer',
-            'brand', 'quality', 'value', 'save', 'now', 'today', 'limited', 'exclusive', 'special', 'premium', 'professional'
-        ]);
+        async function initializeSpellChecker() {
+        // Try to load a comprehensive dictionary from CDN
+        try {
+            // Load Typo.js library for spell checking
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/gh/cfinke/Typo.js@master/typo/typo.js';
+            document.head.appendChild(script);
+            
+            await new Promise((resolve) => {
+                script.onload = async () => {
+                    // Load dictionary files for US English
+                    try {
+                        // Fetch dictionary files
+                        const [affResponse, dicResponse] = await Promise.all([
+                            fetch('https://cdn.jsdelivr.net/gh/wooorm/dictionaries@main/dictionaries/en/index.aff'),
+                            fetch('https://cdn.jsdelivr.net/gh/wooorm/dictionaries@main/dictionaries/en/index.dic')
+                        ]);
+                        
+                        if (affResponse.ok && dicResponse.ok) {
+                            const affData = await affResponse.text();
+                            const dicData = await dicResponse.text();
+                            
+                            // Initialize Typo.js with the dictionary
+                            window.typoChecker = new Typo("en_US", affData, dicData);
+                            console.log('Typo.js spell checker initialized with full English dictionary');
+                        } else {
+                            throw new Error('Failed to load dictionary files');
+                        }
+                    } catch (error) {
+                        console.warn('Could not load full dictionary, using fallback');
+                        initializeFallbackSpellChecker();
+                    }
+                    resolve();
+                };
+                script.onerror = () => {
+                    console.warn('Typo.js library failed to load, using fallback');
+                    initializeFallbackSpellChecker();
+                    resolve();
+                };
+            });
+            
+        } catch (error) {
+            console.warn('Error initializing spell checker, using fallback:', error);
+            initializeFallbackSpellChecker();
+        }
 
+        // Create spell checker wrapper
         spellChecker = {
-            dictionary: commonWords,
             check: function(word) {
                 const cleaned = word.toLowerCase().replace(/[^a-z]/g, '');
+                
+                // Skip short words and numbers
                 if (cleaned.length <= 2) return true;
                 if (/^\d+$/.test(word)) return true;
+                
+                // Check session memory
                 if (sessionMemory.approvedWords.has(cleaned)) return true;
                 if (sessionMemory.rejectedWords.has(cleaned)) return false;
-                return this.dictionary.has(cleaned);
+                
+                // Use Typo.js if available
+                if (window.typoChecker) {
+                    return window.typoChecker.check(cleaned);
+                }
+                
+                // Use fallback dictionary if Typo.js isn't available
+                if (window.fallbackDictionary) {
+                    return window.fallbackDictionary.has(cleaned);
+                }
+                
+                // Default to accepting the word if no checker is available
+                return true;
             }
         };
+    }
+    
+    function initializeFallbackSpellChecker() {
+        // Minimal fallback dictionary with very common words only
+        // This ensures basic functionality if CDN resources fail
+        window.fallbackDictionary = new Set([
+            // Only the most common English words
+            'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as',
+            'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 
+            'can', 'could', 'should', 'may', 'might', 'must', 'shall', 'get', 'make', 'go', 'take', 'come', 'see',
+            'know', 'think', 'look', 'want', 'give', 'use', 'find', 'tell', 'ask', 'work', 'seem', 'feel', 'try',
+            'leave', 'call', 'good', 'new', 'first', 'last', 'long', 'great', 'little', 'own', 'other', 'old',
+            'right', 'big', 'high', 'different', 'small', 'large', 'next', 'early', 'young', 'important', 'few',
+            'public', 'bad', 'same', 'able', 'time', 'year', 'years', 'work', 'day', 'days', 'way', 'people',
+            'man', 'men', 'woman', 'women', 'child', 'children', 'thing', 'things', 'life', 'world', 'hand',
+            'part', 'place', 'case', 'point', 'company', 'number', 'group', 'problem', 'fact',
+            // Add common marketing/web terms
+            'online', 'digital', 'internet', 'website', 'web', 'email', 'click', 'download', 'upload', 'share',
+            'link', 'video', 'image', 'social', 'media', 'network', 'sale', 'offer', 'discount', 'price', 'shop',
+            'store', 'product', 'service', 'customer', 'brand', 'quality', 'value', 'save', 'now', 'today',
+            'free', 'best', 'more', 'less', 'most', 'very', 'just', 'only', 'also', 'back', 'after', 'over',
+            'much', 'even', 'such', 'through', 'still', 'too', 'before', 'never', 'here', 'there', 'when',
+            'where', 'how', 'all', 'both', 'each', 'every', 'any', 'some', 'that', 'this', 'these', 'those',
+            'control', 'controls', 'controlled', 'controlling', 'present', 'presented', 'presenting', 'presents'
+        ]);
         
-        console.log('Spell checker initialized with built-in dictionary');
+        console.log('Using fallback spell checker with limited dictionary');
     }
 
 async function detectTextWithGoogleVision(imageDataUrl) {
