@@ -831,6 +831,7 @@
         approvedWords: new Set(),
         rejectedWords: new Set()
     };
+    let pendingTypoReviews = new Set();
     let spellChecker = null;
     let currentCarouselIndex = 0;
     let currentCarouselBanners = [];
@@ -1089,6 +1090,7 @@
             approvedWords: new Set(),
             rejectedWords: new Set()
         };
+        pendingTypoReviews = new Set();
 
         document.getElementById('processingSection').classList.add('active');
         document.getElementById('totalFiles').textContent = uploadedFiles.length;
@@ -1231,15 +1233,59 @@
         document.getElementById('resultsSection').classList.add('active');
         document.getElementById('actionFooter').style.display = 'flex';
 
+        // Build typo map first to initialize pending reviews
+        const typoMap = new Map();
+        processedBanners.forEach(banner => {
+            if (banner.typos && banner.typos.length > 0) {
+                banner.typos.forEach(typo => {
+                    if (!typoMap.has(typo)) {
+                        typoMap.set(typo, []);
+                    }
+                    typoMap.get(typo).push(banner.fileName);
+                });
+            }
+        });
+
+        // Initialize pending typo reviews
+        pendingTypoReviews = new Set(typoMap.keys());
+
+        // Calculate counts based on current review state
         const total = processedBanners.length;
-        const passed = processedBanners.filter(b => !b.hasIssues && !b.error).length;
-        const warnings = processedBanners.filter(b => b.hasIssues && !b.error).length;
-        const failed = processedBanners.filter(b => b.error).length;
+        let passed = 0;
+        let warnings = 0;
+        let failed = 0;
+
+        processedBanners.forEach(b => {
+            if (b.error) {
+                failed++;
+            } else {
+                const confirmedTypos = (b.typos || []).filter(typo => 
+                    sessionMemory.rejectedWords.has(typo)
+                );
+                const hasIABIssues = b.iabIssues && b.iabIssues.length > 0;
+                
+                if (confirmedTypos.length > 0 || hasIABIssues) {
+                    warnings++;
+                } else {
+                    passed++;
+                }
+            }
+        });
 
         document.getElementById('totalCount').textContent = total;
         document.getElementById('passCount').textContent = passed;
         document.getElementById('warningCount').textContent = warnings;
         document.getElementById('failCount').textContent = failed;
+
+        // Control download button based on pending reviews
+        const downloadBtn = document.getElementById('downloadReportBtn');
+        if (pendingTypoReviews.size > 0) {
+            downloadBtn.disabled = true;
+            downloadBtn.title = `Review ${pendingTypoReviews.size} potential typo${pendingTypoReviews.size > 1 ? 's' : ''} before downloading report`;
+        } else {
+            downloadBtn.disabled = false;
+            downloadBtn.title = '';
+        }
 
         const issuesContainer = document.getElementById('issuesContainer');
         
@@ -1300,18 +1346,6 @@
                 `;
             }
 
-            const typoMap = new Map();
-            processedBanners.forEach(banner => {
-                if (banner.typos && banner.typos.length > 0) {
-                    banner.typos.forEach(typo => {
-                        if (!typoMap.has(typo)) {
-                            typoMap.set(typo, []);
-                        }
-                        typoMap.get(typo).push(banner.fileName);
-                    });
-                }
-            });
-
             if (typoMap.size > 0) {
                 html += `
                     <div class="typo-review-section">
@@ -1348,18 +1382,66 @@
 
     function approveWord(word, index) {
         sessionMemory.approvedWords.add(word);
+        pendingTypoReviews.delete(word);
+        
         const item = document.getElementById(`typo-${index}`);
         item.classList.add('approved');
         item.querySelector('.typo-actions').innerHTML = 
             '<span style="color: var(--color-success);">✓ Approved</span>';
+        
+        updateSummaryAfterReview();
     }
 
     function rejectWord(word, index) {
         sessionMemory.rejectedWords.add(word);
+        pendingTypoReviews.delete(word);
+        
         const item = document.getElementById(`typo-${index}`);
         item.classList.add('rejected');
         item.querySelector('.typo-actions').innerHTML = 
             '<span style="color: var(--color-danger);">✗ Marked as typo</span>';
+        
+        updateSummaryAfterReview();
+    }
+
+    function updateSummaryAfterReview() {
+        // Recalculate counts
+        const total = processedBanners.length;
+        let passed = 0;
+        let warnings = 0;
+        let failed = 0;
+
+        processedBanners.forEach(b => {
+            if (b.error) {
+                failed++;
+            } else {
+                const confirmedTypos = (b.typos || []).filter(typo => 
+                    sessionMemory.rejectedWords.has(typo)
+                );
+                const hasIABIssues = b.iabIssues && b.iabIssues.length > 0;
+                
+                if (confirmedTypos.length > 0 || hasIABIssues) {
+                    warnings++;
+                } else {
+                    passed++;
+                }
+            }
+        });
+
+        // Update display
+        document.getElementById('passCount').textContent = passed;
+        document.getElementById('warningCount').textContent = warnings;
+        document.getElementById('failCount').textContent = failed;
+
+        // Control download button
+        const downloadBtn = document.getElementById('downloadReportBtn');
+        if (pendingTypoReviews.size > 0) {
+            downloadBtn.disabled = true;
+            downloadBtn.title = `Review ${pendingTypoReviews.size} potential typo${pendingTypoReviews.size > 1 ? 's' : ''} before downloading report`;
+        } else {
+            downloadBtn.disabled = false;
+            downloadBtn.title = '';
+        }
     }
 
     async function generatePDFReport() {
@@ -1379,11 +1461,18 @@
         y += 10;
         
         pdf.setFontSize(10);
-        pdf.text(`Total Banners: ${processedBanners.length}`, 30, y);
+        const total = processedBanners.length;
+        const passed = parseInt(document.getElementById('passCount').textContent);
+        const warnings = parseInt(document.getElementById('warningCount').textContent);
+        const failed = parseInt(document.getElementById('failCount').textContent);
+        
+        pdf.text(`Total Banners: ${total}`, 30, y);
         y += 7;
-        pdf.text(`Passed: ${processedBanners.filter(b => !b.hasIssues && !b.error).length}`, 30, y);
+        pdf.text(`Passed: ${passed}`, 30, y);
         y += 7;
-        pdf.text(`Issues Found: ${processedBanners.filter(b => b.hasIssues).length}`, 30, y);
+        pdf.text(`Warnings: ${warnings}`, 30, y);
+        y += 7;
+        pdf.text(`Failed: ${failed}`, 30, y);
         y += 15;
         
         pdf.setFontSize(14);
@@ -1421,13 +1510,14 @@
                 });
             }
             
-            if (sessionMemory.rejectedWords.size > 0) {
-                const bannersTypos = Array.from(sessionMemory.rejectedWords)
-                    .filter(word => banner.typos?.includes(word));
-                if (bannersTypos.length > 0) {
-                    pdf.text(`• Typos: ${bannersTypos.join(', ')}`, 30, y);
-                    y += 5;
-                }
+            // Only include confirmed typos (rejected, not approved)
+            const confirmedTypos = (banner.typos || []).filter(typo => 
+                sessionMemory.rejectedWords.has(typo)
+            );
+            
+            if (confirmedTypos.length > 0) {
+                pdf.text(`• Confirmed Typos: ${confirmedTypos.join(', ')}`, 30, y);
+                y += 5;
             }
             
             y += 5;
@@ -1546,6 +1636,7 @@
             approvedWords: new Set(),
             rejectedWords: new Set()
         };
+        pendingTypoReviews = new Set();
         
         document.getElementById('fileQueue').innerHTML = '<div class="queue-empty">No files uploaded yet</div>';
         document.getElementById('processBtn').disabled = true;
