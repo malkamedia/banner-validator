@@ -431,7 +431,8 @@
         .preview-modal-content {
             background: white;
             border-radius: var(--border-radius-lg);
-            max-width: 90%;
+            max-width: 1200px;
+            width: 90%;
             max-height: 90%;
             overflow: auto;
             box-shadow: var(--shadow-md);
@@ -461,17 +462,22 @@
         }
 
         .preview-modal-body {
-            padding: var(--space-4);
+            padding: var(--space-6);
         }
 
         .banner-carousel {
             position: relative;
-            margin-bottom: var(--space-4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            padding: var(--space-4) 80px;
         }
 
         .banner-preview-item {
             display: none;
             text-align: center;
+            width: 100%;
         }
 
         .banner-preview-item.active {
@@ -480,18 +486,17 @@
 
         .banner-preview-image {
             max-width: 100%;
-            max-height: 500px;
+            max-height: 600px;
             height: auto;
-            border: 1px solid var(--color-gray-200);
-            border-radius: var(--border-radius);
-            margin: 0 auto var(--space-2);
+            margin: 0 auto;
             display: block;
         }
 
         .banner-preview-name {
-            font-size: var(--font-size-sm);
+            font-size: var(--font-size-base);
             color: var(--color-gray-900);
-            font-weight: 600;
+            font-weight: 400;
+            margin-top: var(--space-4);
             margin-bottom: var(--space-2);
         }
 
@@ -509,48 +514,55 @@
         }
 
         .carousel-btn {
-            background: var(--color-gray-500);
+            background: #6b7280;
             color: white;
             border: none;
-            width: 40px;
-            height: 40px;
+            width: 48px;
+            height: 48px;
             border-radius: 2px;
             cursor: pointer;
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: all 0.2s ease;
             pointer-events: all;
+            padding: 0;
         }
 
         .carousel-btn:hover:not(:disabled) {
-            background: var(--color-gray-600);
+            background: #4b5563;
         }
 
         .carousel-btn:disabled {
-            opacity: 0.3;
+            background: #d1d5db;
             cursor: not-allowed;
         }
 
         .carousel-dots {
             display: flex;
             justify-content: center;
-            gap: var(--space-2);
+            align-items: center;
+            gap: 8px;
             margin-top: var(--space-4);
+            margin-bottom: var(--space-4);
         }
 
         .carousel-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: var(--color-gray-300);
+            background: #d1d5db;
             cursor: pointer;
             transition: all 0.2s ease;
         }
 
         .carousel-dot.active {
-            background: var(--color-gray-700);
+            background: #111827;
+        }
+
+        .carousel-dot:hover {
+            background: #6b7280;
         }
 
         .preview-actions {
