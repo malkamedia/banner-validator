@@ -1796,7 +1796,7 @@
         const title = document.getElementById('previewTitle');
         const actions = document.getElementById('previewActions');
         
-        title.textContent = `Potential Typo: "${word}"`;
+        title.textContent = `Banners containing "${word}"`;
         
         const bannersWithTypo = processedBanners.filter(banner => 
             banner.typos && banner.typos.includes(word)
@@ -1810,6 +1810,9 @@
                 <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
                 <div class="banner-preview-name">${banner.fileName}</div>
                 ${banner.iabStandard ? `<div class="iab-badge" style="margin-top: 4px;">${banner.iabStandard}</div>` : ''}
+                <div style="margin-top: 12px; padding: 10px; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 4px; font-size: 13px; color: #78350f;">
+                    <strong>Potential Typo:</strong> "${word}"
+                </div>
             </div>
         `).join('');
         
