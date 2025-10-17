@@ -373,6 +373,66 @@
             margin-bottom: var(--space-1);
         }
 
+        /* Accordion styles */
+        .issue-accordion {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-3);
+            background: white;
+            border-radius: var(--border-radius);
+            margin-bottom: var(--space-2);
+            border: 1px solid var(--color-gray-200);
+            transition: all 0.2s ease;
+        }
+
+        .issue-accordion:hover {
+            background: var(--color-gray-50);
+        }
+
+        .accordion-caret {
+            font-size: var(--font-size-sm);
+            transition: transform 0.2s ease;
+            color: var(--color-gray-500);
+            min-width: 12px;
+        }
+
+        .accordion-caret.open {
+            transform: rotate(90deg);
+        }
+
+        .accordion-summary {
+            flex: 1;
+            font-weight: 600;
+            font-size: var(--font-size-base);
+            color: var(--color-gray-900);
+        }
+
+        .accordion-summary.error {
+            color: var(--color-danger);
+        }
+
+        .accordion-summary.warning {
+            color: var(--color-warning);
+        }
+
+        .accordion-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .accordion-content.open {
+            max-height: 2000px;
+        }
+
+        .accordion-content-inner {
+            padding: var(--space-3);
+            padding-top: 0;
+        }
+
         /* Typo Review with Preview */
         .typo-review-section {
             background: var(--color-gray-50);
@@ -1775,17 +1835,28 @@
                                 <span class="status-icon status-error">✗</span>
                                 HTML5 Validation Errors (${html5Errors.length})
                             </div>
-                            ${html5Errors.map(banner => `
-                                <div class="issue-item">
-                                    <strong>${banner.fileName}</strong>
-                                    <ul class="html5-issue-detail">
-                                        ${banner.html5Issues
-                                            .filter(issue => issue.severity === 'error')
-                                            .map(issue => `<li>${issue.message}</li>`)
-                                            .join('')}
-                                    </ul>
-                                </div>
-                            `).join('')}
+                            ${html5Errors.map((banner, idx) => {
+                                const errorCount = banner.html5Issues.filter(issue => issue.severity === 'error').length;
+                                return `
+                                    <div class="issue-item" style="padding: 0;">
+                                        <div class="issue-accordion" onclick="toggleAccordion(this)">
+                                            <span class="accordion-caret">▶</span>
+                                            <strong style="flex: 0 0 auto; margin-right: var(--space-3);">${banner.fileName}</strong>
+                                            <span class="accordion-summary error">${errorCount} Critical Error${errorCount > 1 ? 's' : ''} Found</span>
+                                        </div>
+                                        <div class="accordion-content">
+                                            <div class="accordion-content-inner">
+                                                <ul class="html5-issue-detail">
+                                                    ${banner.html5Issues
+                                                        .filter(issue => issue.severity === 'error')
+                                                        .map(issue => `<li>${issue.message}</li>`)
+                                                        .join('')}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
                         </div>
                     `;
                 }
@@ -1797,17 +1868,28 @@
                                 <span class="status-icon status-warning">⚠</span>
                                 HTML5 Validation Warnings (${html5Warnings.length})
                             </div>
-                            ${html5Warnings.map(banner => `
-                                <div class="issue-item">
-                                    <strong>${banner.fileName}</strong>
-                                    <ul class="html5-issue-detail">
-                                        ${banner.html5Issues
-                                            .filter(issue => issue.severity === 'warning')
-                                            .map(issue => `<li>${issue.message}</li>`)
-                                            .join('')}
-                                    </ul>
-                                </div>
-                            `).join('')}
+                            ${html5Warnings.map((banner, idx) => {
+                                const warningCount = banner.html5Issues.filter(issue => issue.severity === 'warning').length;
+                                return `
+                                    <div class="issue-item" style="padding: 0;">
+                                        <div class="issue-accordion" onclick="toggleAccordion(this)">
+                                            <span class="accordion-caret">▶</span>
+                                            <strong style="flex: 0 0 auto; margin-right: var(--space-3);">${banner.fileName}</strong>
+                                            <span class="accordion-summary warning">${warningCount} Warning${warningCount > 1 ? 's' : ''} Found</span>
+                                        </div>
+                                        <div class="accordion-content">
+                                            <div class="accordion-content-inner">
+                                                <ul class="html5-issue-detail">
+                                                    ${banner.html5Issues
+                                                        .filter(issue => issue.severity === 'warning')
+                                                        .map(issue => `<li>${issue.message}</li>`)
+                                                        .join('')}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
                         </div>
                     `;
                 }
@@ -2262,6 +2344,21 @@
     
     function closePreviewModal() {
         document.getElementById('previewModal').classList.remove('active');
+    }
+    
+    function toggleAccordion(element) {
+        const caret = element.querySelector('.accordion-caret');
+        const content = element.nextElementSibling;
+        
+        const isOpen = content.classList.contains('open');
+        
+        if (isOpen) {
+            caret.classList.remove('open');
+            content.classList.remove('open');
+        } else {
+            caret.classList.add('open');
+            content.classList.add('open');
+        }
     }
     
     function approveWordFromPreview(word, index) {
