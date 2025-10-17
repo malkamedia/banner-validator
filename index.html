@@ -11,6 +11,7 @@
     
     <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -699,6 +700,48 @@
                 grid-template-columns: repeat(2, 1fr);
             }
         }
+        .file-queue-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--space-3);
+        }
+        
+        .total-size {
+            font-size: var(--font-size-xs);
+            color: var(--color-gray-500);
+        }
+        
+        .total-size.warning {
+            color: var(--color-warning);
+            font-weight: 600;
+        }
+        
+        .total-size.error {
+            color: var(--color-danger);
+            font-weight: 600;
+        }
+        
+        .zip-badge {
+            background: #dbeafe;
+            color: var(--color-primary);
+            padding: 2px 8px;
+            border-radius: var(--border-radius-sm);
+            font-size: var(--font-size-xs);
+            font-weight: 600;
+            margin-left: var(--space-2);
+        }
+        
+        .extracting-spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid var(--color-gray-300);
+            border-top-color: var(--color-primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: var(--space-2);
+        }
     </style>
 </head>
 <body>
@@ -731,12 +774,15 @@
                 <div class="upload-area" id="uploadArea">
                     <div class="upload-icon">📤</div>
                     <div class="upload-title">Drop banners here</div>
-                    <div class="upload-subtitle">Upload up to 12 files • JPG, PNG, GIF</div>
-                    <input type="file" id="fileInput" accept="image/jpeg,image/jpg,image/png,image/gif" multiple>
+                    <div class="upload-subtitle">Upload files • JPG, PNG, GIF, ZIP • 50MB total limit</div>
+                    <input type="file" id="fileInput" accept="image/jpeg,image/jpg,image/png,image/gif,application/zip,.zip" multiple>
                 </div>
                 
                 <div class="file-queue">
-                    <div class="queue-title">File Queue</div>
+                    <div class="file-queue-header">
+                        <div class="queue-title">File Queue</div>
+                        <div class="total-size" id="totalSize">0 KB / 50 MB</div>
+                    </div>
                     <div id="fileQueue">
                         <div class="queue-empty">No files uploaded yet</div>
                     </div>
@@ -835,6 +881,8 @@
     let spellChecker = null;
     let currentCarouselIndex = 0;
     let currentCarouselBanners = [];
+    const MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB in bytes
+    const MAX_INDIVIDUAL_SIZE = 10 * 1024 * 1024; // 10MB per file
     
     // IAB Specifications
     const IAB_SPECS = {
@@ -854,13 +902,13 @@
             { name: "Mobile Interstitial", width: 1080, height: 1920, maxKB: 300 }
         ]
     };
-
+    
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
         await initializeSpellChecker();
         setupEventListeners();
     });
-
+    
     async function initializeSpellChecker() {
         try {
             const script = document.createElement('script');
@@ -901,7 +949,7 @@
             console.warn('Error initializing spell checker, using fallback:', error);
             initializeFallbackSpellChecker();
         }
-
+    
         spellChecker = {
             check: function(word) {
                 const cleaned = word.toLowerCase().replace(/[^a-z]/g, '');
@@ -947,7 +995,7 @@
         
         console.log('Using fallback spell checker with limited dictionary');
     }
-
+    
     async function detectTextWithGoogleVision(imageDataUrl) {
         try {
             const base64Image = imageDataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
@@ -985,72 +1033,181 @@
             return { text: '', confidence: 0 };
         }
     }
-
+    
     function setupEventListeners() {
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const processBtn = document.getElementById('processBtn');
         const resetBtn = document.getElementById('resetBtn');
         const downloadReportBtn = document.getElementById('downloadReportBtn');
-
+    
         uploadArea.addEventListener('click', () => fileInput.click());
         
         uploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadArea.classList.add('dragging');
         });
-
+    
         uploadArea.addEventListener('dragleave', () => {
             uploadArea.classList.remove('dragging');
         });
-
+    
         uploadArea.addEventListener('drop', (e) => {
             e.preventDefault();
             uploadArea.classList.remove('dragging');
             handleFiles(e.dataTransfer.files);
         });
-
+    
         fileInput.addEventListener('change', (e) => {
             handleFiles(e.target.files);
         });
-
+    
         processBtn.addEventListener('click', processBatch);
         resetBtn.addEventListener('click', resetValidator);
         downloadReportBtn.addEventListener('click', generatePDFReport);
     }
-
-    function handleFiles(files) {
+    
+    async function handleFiles(files) {
         const fileArray = Array.from(files);
-        const validFiles = fileArray.filter(file => {
-            if (!file.type.match(/^image\/(jpeg|jpg|png|gif)$/)) {
-                console.log('Invalid file type:', file.name);
-                return false;
+        
+        for (const file of fileArray) {
+            // Check if it's a zip file
+            if (file.type === 'application/zip' || file.name.toLowerCase().endsWith('.zip')) {
+                await extractZipFile(file);
+            } else {
+                // Handle individual image files
+                if (!file.type.match(/^image\/(jpeg|jpg|png|gif)$/)) {
+                    console.log('Invalid file type:', file.name);
+                    continue;
+                }
+                if (file.size > MAX_INDIVIDUAL_SIZE) {
+                    alert(`File too large: ${file.name} (max 10MB per file)`);
+                    continue;
+                }
+                
+                uploadedFiles.push({
+                    file: file,
+                    source: 'direct'
+                });
             }
-            if (file.size > 10 * 1024 * 1024) {
-                console.log('File too large:', file.name);
-                return false;
-            }
-            return true;
-        });
-
-        if (validFiles.length === 0) {
-            alert('Please upload valid image files (JPG, PNG, GIF) under 10MB');
-            return;
         }
-
-        uploadedFiles = [...uploadedFiles, ...validFiles].slice(0, 12);
+        
         updateFileQueue();
     }
-
+    
+    async function extractZipFile(zipFile) {
+        // Show extracting status
+        const queueEl = document.getElementById('fileQueue');
+        const extractingMsg = document.createElement('div');
+        extractingMsg.className = 'file-item';
+        extractingMsg.innerHTML = `
+            <div class="file-info">
+                <span class="extracting-spinner"></span>
+                <span class="file-name">Extracting ${zipFile.name}...</span>
+            </div>
+        `;
+        
+        if (queueEl.querySelector('.queue-empty')) {
+            queueEl.innerHTML = '';
+        }
+        queueEl.appendChild(extractingMsg);
+        
+        try {
+            const zip = new JSZip();
+            const contents = await zip.loadAsync(zipFile);
+            
+            let extractedCount = 0;
+            const imageExtensions = ['jpg', 'jpeg', 'png', 'gif'];
+            
+            for (const [filename, zipEntry] of Object.entries(contents.files)) {
+                if (zipEntry.dir) continue;
+                
+                const ext = filename.split('.').pop().toLowerCase();
+                if (!imageExtensions.includes(ext)) continue;
+                
+                try {
+                    const blob = await zipEntry.async('blob');
+                    
+                    // Determine MIME type
+                    let mimeType = 'image/jpeg';
+                    if (ext === 'png') mimeType = 'image/png';
+                    else if (ext === 'gif') mimeType = 'image/gif';
+                    
+                    const file = new File([blob], filename, { type: mimeType });
+                    
+                    if (file.size > MAX_INDIVIDUAL_SIZE) {
+                        console.log(`Skipping large file from zip: ${filename}`);
+                        continue;
+                    }
+                    
+                    uploadedFiles.push({
+                        file: file,
+                        source: 'zip',
+                        zipName: zipFile.name
+                    });
+                    extractedCount++;
+                    
+                } catch (error) {
+                    console.error(`Error extracting ${filename}:`, error);
+                }
+            }
+            
+            extractingMsg.remove();
+            
+            if (extractedCount === 0) {
+                alert(`No valid images found in ${zipFile.name}`);
+            } else {
+                console.log(`Extracted ${extractedCount} images from ${zipFile.name}`);
+            }
+            
+        } catch (error) {
+            console.error('Error extracting zip:', error);
+            alert(`Failed to extract ${zipFile.name}. Please ensure it's a valid zip file.`);
+            extractingMsg.remove();
+        }
+    }
+    
+    function getTotalFileSize() {
+        return uploadedFiles.reduce((total, item) => total + item.file.size, 0);
+    }
+    
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 KB';
+        if (bytes < 1024) return '1 KB';
+        if (bytes < 1024 * 1024) return Math.ceil(bytes / 1024) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    
     function updateFileQueue() {
         const queueEl = document.getElementById('fileQueue');
         const processBtn = document.getElementById('processBtn');
-
+        const totalSizeEl = document.getElementById('totalSize');
+        
+        const totalSize = getTotalFileSize();
+        const totalSizeFormatted = formatFileSize(totalSize);
+        const maxSizeFormatted = formatFileSize(MAX_TOTAL_SIZE);
+        
+        totalSizeEl.textContent = `${totalSizeFormatted} / ${maxSizeFormatted}`;
+        
+        if (totalSize > MAX_TOTAL_SIZE) {
+            totalSizeEl.className = 'total-size error';
+            processBtn.disabled = true;
+        } else if (totalSize > MAX_TOTAL_SIZE * 0.8) {
+            totalSizeEl.className = 'total-size warning';
+            processBtn.disabled = false;
+        } else {
+            totalSizeEl.className = 'total-size';
+            processBtn.disabled = false;
+        }
+    
         if (uploadedFiles.length === 0) {
             queueEl.innerHTML = '<div class="queue-empty">No files uploaded yet</div>';
             processBtn.disabled = true;
+            totalSizeEl.textContent = '0 KB / 50 MB';
+            totalSizeEl.className = 'total-size';
         } else {
-            queueEl.innerHTML = uploadedFiles.map((file, index) => {
+            queueEl.innerHTML = uploadedFiles.map((item, index) => {
+                const file = item.file;
                 const dimensionMatch = file.name.match(/(\d{2,4})x(\d{2,4})/);
                 let iabName = '';
                 
@@ -1065,65 +1222,86 @@
                     }
                 }
                 
+                const sourceTag = item.source === 'zip' 
+                    ? `<span class="zip-badge" title="From ${item.zipName}">ZIP</span>` 
+                    : '';
+                
                 return `
                     <div class="file-item" data-index="${index}">
                         <div class="file-info">
                             <span class="file-name">${file.name}</span>
                             ${iabName}
+                            ${sourceTag}
                         </div>
                         <div class="file-status">
                             <span class="status-icon status-pending">✓</span>
-                            <span>Uploaded</span>
+                            <span>Ready</span>
                         </div>
                     </div>
                 `;
             }).join('');
-            processBtn.disabled = false;
+            
+            if (totalSize > MAX_TOTAL_SIZE) {
+                processBtn.disabled = true;
+                processBtn.title = 'Total file size exceeds 50MB limit';
+            } else {
+                processBtn.disabled = false;
+                processBtn.title = '';
+            }
+        }
+        
+        if (uploadedFiles.length > 50) {
+            console.warn(`Processing ${uploadedFiles.length} files - this may take a while`);
         }
     }
-
+    
     async function processBatch() {
         if (uploadedFiles.length === 0) return;
-
+        
+        if (getTotalFileSize() > MAX_TOTAL_SIZE) {
+            alert('Total file size exceeds 50MB. Please remove some files.');
+            return;
+        }
+    
         processedBanners = [];
         sessionMemory = {
             approvedWords: new Set(),
             rejectedWords: new Set()
         };
         pendingTypoReviews = new Set();
-
+    
         document.getElementById('processingSection').classList.add('active');
         document.getElementById('totalFiles').textContent = uploadedFiles.length;
         document.getElementById('processBtn').disabled = true;
-
+    
         for (let i = 0; i < uploadedFiles.length; i++) {
             updateProgress(i + 1);
             updateFileStatus(i, 'processing');
             
             try {
-                const result = await processImage(uploadedFiles[i]);
+                const result = await processImage(uploadedFiles[i].file);
                 processedBanners.push(result);
                 updateFileStatus(i, result.hasIssues ? 'warning' : 'complete');
             } catch (error) {
-                console.error('Error processing file:', uploadedFiles[i].name, error);
+                console.error('Error processing file:', uploadedFiles[i].file.name, error);
                 processedBanners.push({
-                    file: uploadedFiles[i],
+                    file: uploadedFiles[i].file,
                     error: true,
                     errorMessage: error.message
                 });
                 updateFileStatus(i, 'error');
             }
         }
-
+    
         displayResults();
     }
-
+    
     function updateProgress(current) {
         document.getElementById('currentFile').textContent = current;
         const progress = (current / uploadedFiles.length) * 100;
         document.getElementById('progressBar').style.width = progress + '%';
     }
-
+    
     function updateFileStatus(index, status) {
         const fileItem = document.querySelector(`.file-item[data-index="${index}"]`);
         if (fileItem) {
@@ -1141,7 +1319,7 @@
             `;
         }
     }
-
+    
     async function processImage(file) {
         return new Promise((resolve) => {
             const reader = new FileReader();
@@ -1163,11 +1341,11 @@
                         hasIssues: false,
                         detectedText: ''
                     };
-
+    
                     const iabMatch = IAB_SPECS.fixedSizes.find(spec => 
                         spec.width === img.width && spec.height === img.height
                     );
-
+    
                     if (iabMatch) {
                         result.iabStandard = iabMatch.name;
                         const fileSizeKB = file.size / 1024;
@@ -1186,7 +1364,7 @@
                         });
                         result.hasIssues = true;
                     }
-
+    
                     if (!result.iabIssues.some(issue => issue.type === 'fileSize')) {
                         try {
                             const { text, confidence } = await detectTextWithGoogleVision(e.target.result);
@@ -1217,7 +1395,7 @@
                             console.error('Text detection error:', error);
                         }
                     }
-
+    
                     resolve(result);
                 };
                 
@@ -1227,13 +1405,12 @@
             reader.readAsDataURL(file);
         });
     }
-
+    
     function displayResults() {
         document.getElementById('processingSection').classList.remove('active');
         document.getElementById('resultsSection').classList.add('active');
         document.getElementById('actionFooter').style.display = 'flex';
-
-        // Build typo map first to initialize pending reviews
+    
         const typoMap = new Map();
         processedBanners.forEach(banner => {
             if (banner.typos && banner.typos.length > 0) {
@@ -1245,23 +1422,20 @@
                 });
             }
         });
-
-        // Initialize pending typo reviews
+    
         pendingTypoReviews = new Set(typoMap.keys());
-
-        // Calculate counts based on current review state
+    
         const total = processedBanners.length;
         let passed = 0;
         let warnings = 0;
         let failed = 0;
-
+    
         processedBanners.forEach(b => {
             if (b.error) {
                 failed++;
             } else {
                 const hasIABIssues = b.iabIssues && b.iabIssues.length > 0;
                 
-                // Count unreviewed typos and confirmed typos
                 const pendingTypos = (b.typos || []).filter(typo => 
                     !sessionMemory.approvedWords.has(typo) && !sessionMemory.rejectedWords.has(typo)
                 );
@@ -1278,13 +1452,12 @@
                 }
             }
         });
-
+    
         document.getElementById('totalCount').textContent = total;
         document.getElementById('passCount').textContent = passed;
         document.getElementById('warningCount').textContent = warnings;
         document.getElementById('failCount').textContent = failed;
-
-        // Control download button based on pending reviews
+    
         const downloadBtn = document.getElementById('downloadReportBtn');
         if (pendingTypoReviews.size > 0) {
             downloadBtn.disabled = true;
@@ -1293,7 +1466,7 @@
             downloadBtn.disabled = false;
             downloadBtn.title = '';
         }
-
+    
         const issuesContainer = document.getElementById('issuesContainer');
         
         if (warnings === 0 && failed === 0) {
@@ -1306,7 +1479,7 @@
             `;
         } else {
             let html = '';
-
+    
             const sizeIssues = processedBanners.filter(b => 
                 b.iabIssues?.some(i => i.type === 'fileSize')
             );
@@ -1329,7 +1502,7 @@
                     </div>
                 `;
             }
-
+    
             const dimIssues = processedBanners.filter(b => 
                 b.iabIssues?.some(i => i.type === 'dimensions')
             );
@@ -1352,7 +1525,7 @@
                     </div>
                 `;
             }
-
+    
             if (typoMap.size > 0) {
                 html += `
                     <div class="typo-review-section">
@@ -1382,24 +1555,20 @@
                     </div>
                 `;
             }
-
+    
             issuesContainer.innerHTML = html || '<div class="no-issues">No issues found!</div>';
         }
     }
-
+    
     function approveWord(word, index) {
-        // Remove from rejected if it was there
         sessionMemory.rejectedWords.delete(word);
-        // Add to approved
         sessionMemory.approvedWords.add(word);
-        // Remove from pending since it's now reviewed
         pendingTypoReviews.delete(word);
         
         const item = document.getElementById(`typo-${index}`);
         item.classList.remove('rejected');
         item.classList.add('approved');
         
-        // Keep buttons visible so user can change their mind
         const actionsDiv = item.querySelector('.typo-actions');
         actionsDiv.innerHTML = `
             <button class="btn btn-sm btn-success" onclick="approveWord('${word}', ${index})" disabled style="opacity: 1;">
@@ -1412,20 +1581,16 @@
         
         updateSummaryAfterReview();
     }
-
+    
     function rejectWord(word, index) {
-        // Remove from approved if it was there
         sessionMemory.approvedWords.delete(word);
-        // Add to rejected
         sessionMemory.rejectedWords.add(word);
-        // Remove from pending since it's now reviewed
         pendingTypoReviews.delete(word);
         
         const item = document.getElementById(`typo-${index}`);
         item.classList.remove('approved');
         item.classList.add('rejected');
         
-        // Keep buttons visible so user can change their mind
         const actionsDiv = item.querySelector('.typo-actions');
         actionsDiv.innerHTML = `
             <button class="btn btn-sm btn-success" onclick="approveWord('${word}', ${index})">
@@ -1438,21 +1603,19 @@
         
         updateSummaryAfterReview();
     }
-
+    
     function updateSummaryAfterReview() {
-        // Recalculate counts
         const total = processedBanners.length;
         let passed = 0;
         let warnings = 0;
         let failed = 0;
-
+    
         processedBanners.forEach(b => {
             if (b.error) {
                 failed++;
             } else {
                 const hasIABIssues = b.iabIssues && b.iabIssues.length > 0;
                 
-                // Count unreviewed typos and confirmed typos
                 const pendingTypos = (b.typos || []).filter(typo => 
                     !sessionMemory.approvedWords.has(typo) && !sessionMemory.rejectedWords.has(typo)
                 );
@@ -1469,13 +1632,11 @@
                 }
             }
         });
-
-        // Update display
+    
         document.getElementById('passCount').textContent = passed;
         document.getElementById('warningCount').textContent = warnings;
         document.getElementById('failCount').textContent = failed;
-
-        // Control download button
+    
         const downloadBtn = document.getElementById('downloadReportBtn');
         if (pendingTypoReviews.size > 0) {
             downloadBtn.disabled = true;
@@ -1485,7 +1646,7 @@
             downloadBtn.title = '';
         }
     }
-
+    
     async function generatePDFReport() {
         const { jsPDF } = window.jspdf;
         const pdf = new jsPDF();
@@ -1552,7 +1713,6 @@
                 });
             }
             
-            // Only include confirmed typos (rejected, not approved)
             const confirmedTypos = (banner.typos || []).filter(typo => 
                 sessionMemory.rejectedWords.has(typo)
             );
@@ -1567,7 +1727,7 @@
         
         pdf.save(`banner-validation-report-${Date.now()}.pdf`);
     }
-
+    
     function showBannerPreview(word, index) {
         const modal = document.getElementById('previewModal');
         const carousel = document.getElementById('bannerCarousel');
@@ -1584,7 +1744,6 @@
         currentCarouselBanners = bannersWithTypo;
         currentCarouselIndex = 0;
         
-        // Create banner items
         const bannerItemsHTML = bannersWithTypo.map((banner, idx) => `
             <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
                 <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
@@ -1594,12 +1753,10 @@
             </div>
         `).join('');
         
-        // Insert banner items before the nav buttons
         const navButtons = carousel.querySelector('.carousel-nav');
         carousel.innerHTML = bannerItemsHTML;
         carousel.appendChild(navButtons);
         
-        // Create dots
         dots.innerHTML = bannersWithTypo.map((_, idx) => 
             `<div class="carousel-dot ${idx === 0 ? 'active' : ''}" onclick="goToSlide(${idx})"></div>`
         ).join('');
@@ -1617,7 +1774,7 @@
         
         modal.classList.add('active');
     }
-
+    
     function navigateCarousel(direction) {
         const newIndex = currentCarouselIndex + direction;
         
@@ -1627,7 +1784,7 @@
         
         goToSlide(newIndex);
     }
-
+    
     function goToSlide(index) {
         const items = document.querySelectorAll('.banner-preview-item');
         const dots = document.querySelectorAll('.carousel-dot');
@@ -1642,7 +1799,7 @@
         
         updateCarouselButtons();
     }
-
+    
     function updateCarouselButtons() {
         const prevBtn = document.getElementById('prevBtn');
         const nextBtn = document.getElementById('nextBtn');
@@ -1650,27 +1807,27 @@
         prevBtn.disabled = currentCarouselIndex === 0;
         nextBtn.disabled = currentCarouselIndex === currentCarouselBanners.length - 1;
     }
-
+    
     function closePreviewModal() {
         document.getElementById('previewModal').classList.remove('active');
     }
-
+    
     function approveWordFromPreview(word, index) {
         approveWord(word, index);
         closePreviewModal();
     }
-
+    
     function rejectWordFromPreview(word, index) {
         rejectWord(word, index);
         closePreviewModal();
     }
-
+    
     document.getElementById('previewModal').addEventListener('click', function(e) {
         if (e.target === this) {
             closePreviewModal();
         }
     });
-
+    
     function resetValidator() {
         uploadedFiles = [];
         processedBanners = [];
@@ -1681,6 +1838,8 @@
         pendingTypoReviews = new Set();
         
         document.getElementById('fileQueue').innerHTML = '<div class="queue-empty">No files uploaded yet</div>';
+        document.getElementById('totalSize').textContent = '0 KB / 50 MB';
+        document.getElementById('totalSize').className = 'total-size';
         document.getElementById('processBtn').disabled = true;
         document.getElementById('resultsSection').classList.remove('active');
         document.getElementById('actionFooter').style.display = 'none';
