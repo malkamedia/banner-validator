@@ -2142,6 +2142,7 @@
             }
         });
         
+        
         function addBannerSection(title, banners, statusColor, statusText) {
             if (banners.length === 0) return;
             
@@ -2162,6 +2163,7 @@
                     y = 20;
                 }
                 
+                // Draw colored status box
                 pdf.setFillColor(...statusColor);
                 pdf.rect(20, y - 3, 4, 4, 'F');
                 
@@ -2187,13 +2189,40 @@
                     
                     if (banner.html5Issues && banner.html5Issues.length > 0) {
                         banner.html5Issues.forEach(issue => {
-                            const prefix = issue.severity === 'error' ? '✗' : '⚠';
-                            pdf.text(`${prefix} ${issue.message}`, 30, y);
-                            y += 5;
+                            const prefix = issue.severity === 'error' ? 'X' : '!';
+                            
+                            // Split long messages into multiple lines
+                            const maxWidth = 150;
+                            const words = issue.message.split(' ');
+                            let currentLine = `${prefix} `;
+                            
+                            words.forEach((word, idx) => {
+                                const testLine = currentLine + word + ' ';
+                                const lineWidth = pdf.getTextWidth(testLine);
+                                
+                                if (lineWidth > maxWidth && currentLine !== `${prefix} `) {
+                                    pdf.text(currentLine.trim(), 30, y);
+                                    y += 5;
+                                    currentLine = '  ' + word + ' ';
+                                } else {
+                                    currentLine = testLine;
+                                }
+                            });
+                            
+                            if (currentLine.trim().length > 0) {
+                                pdf.text(currentLine.trim(), 30, y);
+                                y += 5;
+                            }
+                            
+                            // Add page break if needed
+                            if (y > 250) {
+                                pdf.addPage();
+                                y = 20;
+                            }
                         });
                     }
                 } else {
-                    pdf.text(`Dimensions: ${banner.width}×${banner.height}px`, 30, y);
+                    pdf.text(`Dimensions: ${banner.width}x${banner.height}px`, 30, y);
                     y += 5;
                     pdf.text(`File Size: ${(banner.fileSize / 1024).toFixed(1)}KB`, 30, y);
                     y += 5;
