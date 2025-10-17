@@ -1388,25 +1388,53 @@
     }
 
     function approveWord(word, index) {
+        // Remove from rejected if it was there
+        sessionMemory.rejectedWords.delete(word);
+        // Add to approved
         sessionMemory.approvedWords.add(word);
+        // Remove from pending since it's now reviewed
         pendingTypoReviews.delete(word);
         
         const item = document.getElementById(`typo-${index}`);
+        item.classList.remove('rejected');
         item.classList.add('approved');
-        item.querySelector('.typo-actions').innerHTML = 
-            '<span style="color: var(--color-success);">✓ Approved</span>';
+        
+        // Keep buttons visible so user can change their mind
+        const actionsDiv = item.querySelector('.typo-actions');
+        actionsDiv.innerHTML = `
+            <button class="btn btn-sm btn-success" onclick="approveWord('${word}', ${index})" disabled style="opacity: 1;">
+                ✓ Correct
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="rejectWord('${word}', ${index})">
+                ✗ Is Typo
+            </button>
+        `;
         
         updateSummaryAfterReview();
     }
 
     function rejectWord(word, index) {
+        // Remove from approved if it was there
+        sessionMemory.approvedWords.delete(word);
+        // Add to rejected
         sessionMemory.rejectedWords.add(word);
+        // Remove from pending since it's now reviewed
         pendingTypoReviews.delete(word);
         
         const item = document.getElementById(`typo-${index}`);
+        item.classList.remove('approved');
         item.classList.add('rejected');
-        item.querySelector('.typo-actions').innerHTML = 
-            '<span style="color: var(--color-danger);">✗ Marked as typo</span>';
+        
+        // Keep buttons visible so user can change their mind
+        const actionsDiv = item.querySelector('.typo-actions');
+        actionsDiv.innerHTML = `
+            <button class="btn btn-sm btn-success" onclick="approveWord('${word}', ${index})">
+                ✓ Correct
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="rejectWord('${word}', ${index})" disabled style="opacity: 1;">
+                ✗ Is Typo
+            </button>
+        `;
         
         updateSummaryAfterReview();
     }
