@@ -1056,7 +1056,7 @@
             
             if (!response.ok) {
                 console.error('Function error:', response.status);
-                return { text: '', confidence: 0 };
+                return { text: '', confidence: 0, wordBoundingBoxes: [] };
             }
             
             const data = await response.json();
@@ -1064,21 +1064,36 @@
             if (data.responses && data.responses[0]) {
                 const response = data.responses[0];
                 
+                // Store word-level bounding boxes
+                const wordBoundingBoxes = [];
+                
+                if (response.textAnnotations && response.textAnnotations.length > 1) {
+                    // Skip first annotation (it's the full text), iterate through individual words
+                    for (let i = 1; i < response.textAnnotations.length; i++) {
+                        const annotation = response.textAnnotations[i];
+                        wordBoundingBoxes.push({
+                            word: annotation.description.toLowerCase(),
+                            vertices: annotation.boundingPoly.vertices
+                        });
+                    }
+                }
+                
                 if (response.fullTextAnnotation) {
                     const fullText = response.fullTextAnnotation.text;
                     console.log('Detected text:', fullText);
                     return {
                         text: fullText,
-                        confidence: 85
+                        confidence: 85,
+                        wordBoundingBoxes: wordBoundingBoxes
                     };
                 }
             }
             
-            return { text: '', confidence: 0 };
+            return { text: '', confidence: 0, wordBoundingBoxes: [] };
             
         } catch (error) {
             console.error('Error calling text detection:', error);
-            return { text: '', confidence: 0 };
+            return { text: '', confidence: 0, wordBoundingBoxes: [] };
         }
     }
     
@@ -1428,11 +1443,12 @@
     
                     if (!result.iabIssues.some(issue => issue.type === 'fileSize')) {
                         try {
-                            const { text, confidence } = await detectTextWithGoogleVision(e.target.result);
+                            const { text, confidence, wordBoundingBoxes } = await detectTextWithGoogleVision(e.target.result);
                             
                             if (text && confidence > 50) {
                                 result.extractedText = text;
                                 result.detectedText = text;
+                                result.wordBoundingBoxes = wordBoundingBoxes; // Store bounding boxes
                                 
                                 const cleanText = text.replace(/[^\w\s]/gi, ' ');
                                 const words = cleanText.toLowerCase().match(/\b[a-z]{2,}\b/g) || [];
@@ -1805,16 +1821,51 @@
         currentCarouselBanners = bannersWithTypo;
         currentCarouselIndex = 0;
         
-        const bannerItemsHTML = bannersWithTypo.map((banner, idx) => `
-            <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
-                <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
-                <div class="banner-preview-name">${banner.fileName}</div>
-                ${banner.iabStandard ? `<div class="iab-badge" style="margin-top: 4px;">${banner.iabStandard}</div>` : ''}
-                <div style="margin-top: 12px; padding: 10px; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 4px; font-size: 13px; color: #78350f;">
-                    <strong>Potential Typo:</strong> "${word}"
+        const bannerItemsHTML = bannersWithTypo.map((banner, idx) => {
+            // Find all bounding boxes for this word
+            const matchingBoxes = banner.wordBoundingBoxes 
+                ? banner.wordBoundingBoxes.filter(box => box.word === word.toLowerCase())
+                : [];
+            
+            // Create SVG overlay with red rectangles
+            let svgOverlay = '';
+            if (matchingBoxes.length > 0) {
+                const rects = matchingBoxes.map(box => {
+                    const vertices = box.vertices;
+                    const minX = Math.min(...vertices.map(v => v.x || 0));
+                    const minY = Math.min(...vertices.map(v => v.y || 0));
+                    const maxX = Math.max(...vertices.map(v => v.x || 0));
+                    const maxY = Math.max(...vertices.map(v => v.y || 0));
+                    const width = maxX - minX;
+                    const height = maxY - minY;
+                    
+                    return `<rect x="${minX}" y="${minY}" width="${width}" height="${height}" 
+                            fill="none" stroke="red" stroke-width="3" />`;
+                }).join('');
+                
+                svgOverlay = `
+                    <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"
+                         viewBox="0 0 ${banner.width} ${banner.height}" 
+                         preserveAspectRatio="xMidYMid meet">
+                        ${rects}
+                    </svg>
+                `;
+            }
+            
+            return `
+                <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
+                    <div style="position: relative; display: inline-block;">
+                        <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
+                        ${svgOverlay}
+                    </div>
+                    <div class="banner-preview-name">${banner.fileName}</div>
+                    ${banner.iabStandard ? `<div class="iab-badge" style="margin-top: 4px;">${banner.iabStandard}</div>` : ''}
+                    <div style="margin-top: 12px; padding: 10px; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 4px; font-size: 13px; color: #78350f;">
+                        <strong>Potential Typo:</strong> "${word}" (${matchingBoxes.length} occurrence${matchingBoxes.length !== 1 ? 's' : ''})
+                    </div>
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
         
         const navButtons = carousel.querySelector('.carousel-nav');
         carousel.innerHTML = bannerItemsHTML;
