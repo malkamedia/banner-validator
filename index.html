@@ -1259,12 +1259,19 @@
             if (b.error) {
                 failed++;
             } else {
+                const hasIABIssues = b.iabIssues && b.iabIssues.length > 0;
+                
+                // Count unreviewed typos and confirmed typos
+                const pendingTypos = (b.typos || []).filter(typo => 
+                    !sessionMemory.approvedWords.has(typo) && !sessionMemory.rejectedWords.has(typo)
+                );
                 const confirmedTypos = (b.typos || []).filter(typo => 
                     sessionMemory.rejectedWords.has(typo)
                 );
-                const hasIABIssues = b.iabIssues && b.iabIssues.length > 0;
                 
-                if (confirmedTypos.length > 0 || hasIABIssues) {
+                if (hasIABIssues) {
+                    failed++;
+                } else if (pendingTypos.length > 0 || confirmedTypos.length > 0) {
                     warnings++;
                 } else {
                     passed++;
@@ -1415,12 +1422,19 @@
             if (b.error) {
                 failed++;
             } else {
+                const hasIABIssues = b.iabIssues && b.iabIssues.length > 0;
+                
+                // Count unreviewed typos and confirmed typos
+                const pendingTypos = (b.typos || []).filter(typo => 
+                    !sessionMemory.approvedWords.has(typo) && !sessionMemory.rejectedWords.has(typo)
+                );
                 const confirmedTypos = (b.typos || []).filter(typo => 
                     sessionMemory.rejectedWords.has(typo)
                 );
-                const hasIABIssues = b.iabIssues && b.iabIssues.length > 0;
                 
-                if (confirmedTypos.length > 0 || hasIABIssues) {
+                if (hasIABIssues) {
+                    failed++;
+                } else if (pendingTypos.length > 0 || confirmedTypos.length > 0) {
                     warnings++;
                 } else {
                     passed++;
