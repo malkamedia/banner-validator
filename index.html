@@ -212,6 +212,15 @@
             font-weight: 600;
         }
 
+        .html5-badge {
+            background: #ede9fe;
+            color: #7c3aed;
+            padding: 2px 8px;
+            border-radius: var(--border-radius-sm);
+            font-size: var(--font-size-xs);
+            font-weight: 600;
+        }
+
         .file-status {
             display: flex;
             align-items: center;
@@ -350,6 +359,18 @@
             font-size: var(--font-size-xs);
             color: var(--color-gray-500);
             margin-top: var(--space-1);
+        }
+
+        .html5-issue-detail {
+            margin-top: var(--space-2);
+            padding-left: var(--space-3);
+            border-left: 2px solid var(--color-gray-300);
+        }
+
+        .html5-issue-detail li {
+            color: var(--color-gray-600);
+            font-size: var(--font-size-sm);
+            margin-bottom: var(--space-1);
         }
 
         /* Typo Review with Preview */
@@ -788,7 +809,7 @@
             font-size: var(--font-size-xs);
             font-weight: 600;
             margin-left: var(--space-2);
-            margin-right: var(--space-3); /* Added spacing to the right */
+            margin-right: var(--space-3);
         }
     </style>
 </head>
@@ -812,7 +833,7 @@
         <header class="validator-header">
             <div class="header-content">
                 <h1>Banner Validator & Spellcheck</h1>
-                <p>Use this tool to validate banners against IAB standards and check for typos</p>
+                <p>Validate banners against IAB standards, Google AdWords HTML5 requirements, and check for typos</p>
             </div>
         </header>
 
@@ -822,7 +843,7 @@
                 <div class="upload-area" id="uploadArea">
                     <div class="upload-icon">📤</div>
                     <div class="upload-title">Drop banners here</div>
-                    <div class="upload-subtitle">Upload files • JPG, PNG, GIF, ZIP • 50MB total limit</div>
+                    <div class="upload-subtitle">Upload files • JPG, PNG, GIF, ZIP (HTML5) • 50MB total limit</div>
                     <input type="file" id="fileInput" accept="image/jpeg,image/jpg,image/png,image/gif,application/zip,.zip" multiple>
                 </div>
                 
@@ -950,6 +971,9 @@
             { name: "Mobile Interstitial", width: 1080, height: 1920, maxKB: 300 }
         ]
     };
+
+    // HTML5 Validation - Forbidden tags per Google AdWords
+    const FORBIDDEN_TAGS = ['iframe', 'frame', 'frameset', 'object', 'embed', 'audio', 'video', 'link', 'form', 'input', 'textarea', 'select', 'button'];
     
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
@@ -1064,11 +1088,9 @@
             if (data.responses && data.responses[0]) {
                 const response = data.responses[0];
                 
-                // Store word-level bounding boxes
                 const wordBoundingBoxes = [];
                 
                 if (response.textAnnotations && response.textAnnotations.length > 1) {
-                    // Skip first annotation (it's the full text), iterate through individual words
                     for (let i = 1; i < response.textAnnotations.length; i++) {
                         const annotation = response.textAnnotations[i];
                         wordBoundingBoxes.push({
@@ -1134,11 +1156,9 @@
         const fileArray = Array.from(files);
         
         for (const file of fileArray) {
-            // Check if it's a zip file
             if (file.type === 'application/zip' || file.name.toLowerCase().endsWith('.zip')) {
                 await extractZipFile(file);
             } else {
-                // Handle individual image files
                 if (!file.type.match(/^image\/(jpeg|jpg|png|gif)$/)) {
                     console.log('Invalid file type:', file.name);
                     continue;
@@ -1150,7 +1170,8 @@
                 
                 uploadedFiles.push({
                     file: file,
-                    source: 'direct'
+                    source: 'direct',
+                    type: 'image'
                 });
             }
         }
@@ -1159,7 +1180,6 @@
     }
     
     async function extractZipFile(zipFile) {
-        // Show extracting status
         const queueEl = document.getElementById('fileQueue');
         const extractingMsg = document.createElement('div');
         extractingMsg.className = 'file-item';
@@ -1177,50 +1197,93 @@
         
         try {
             const zip = new JSZip();
-            const contents = await zip.loadAsync(zipFile);
+            const contents = await zipFile.arrayBuffer();
+            await zip.loadAsync(contents);
             
             let extractedCount = 0;
             const imageExtensions = ['jpg', 'jpeg', 'png', 'gif'];
+            const htmlFiles = [];
+            const allFiles = {};
             
-            for (const [filename, zipEntry] of Object.entries(contents.files)) {
+            // First pass: collect all files
+            for (const [filename, zipEntry] of Object.entries(zip.files)) {
                 if (zipEntry.dir) continue;
                 
                 const ext = filename.split('.').pop().toLowerCase();
-                if (!imageExtensions.includes(ext)) continue;
+                allFiles[filename] = zipEntry;
+                
+                // Check for HTML files
+                if (ext === 'html' || ext === 'htm') {
+                    htmlFiles.push(filename);
+                }
+            }
+            
+            // If we found HTML files, this is an HTML5 banner
+            if (htmlFiles.length > 0) {
+                // Find index.html or the first HTML file
+                let mainHtmlFile = htmlFiles.find(f => f.toLowerCase().includes('index.html')) || htmlFiles[0];
                 
                 try {
-                    const blob = await zipEntry.async('blob');
+                    const htmlContent = await allFiles[mainHtmlFile].async('text');
+                    const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+                    const htmlFile = new File([htmlBlob], mainHtmlFile, { type: 'text/html' });
                     
-                    // Determine MIME type
-                    let mimeType = 'image/jpeg';
-                    if (ext === 'png') mimeType = 'image/png';
-                    else if (ext === 'gif') mimeType = 'image/gif';
-                    
-                    const file = new File([blob], filename, { type: mimeType });
-                    
-                    if (file.size > MAX_INDIVIDUAL_SIZE) {
-                        console.log(`Skipping large file from zip: ${filename}`);
-                        continue;
+                    if (htmlFile.size > MAX_INDIVIDUAL_SIZE) {
+                        console.log(`Skipping large HTML5 banner: ${zipFile.name}`);
+                    } else {
+                        uploadedFiles.push({
+                            file: htmlFile,
+                            source: 'zip',
+                            zipName: zipFile.name,
+                            type: 'html5',
+                            htmlContent: htmlContent,
+                            zipFiles: allFiles
+                        });
+                        extractedCount++;
                     }
-                    
-                    uploadedFiles.push({
-                        file: file,
-                        source: 'zip',
-                        zipName: zipFile.name
-                    });
-                    extractedCount++;
-                    
                 } catch (error) {
-                    console.error(`Error extracting ${filename}:`, error);
+                    console.error(`Error extracting HTML5 banner ${mainHtmlFile}:`, error);
+                }
+            } else {
+                // No HTML files, treat as image ZIP
+                for (const [filename, zipEntry] of Object.entries(allFiles)) {
+                    const ext = filename.split('.').pop().toLowerCase();
+                    if (!imageExtensions.includes(ext)) continue;
+                    
+                    try {
+                        const blob = await zipEntry.async('blob');
+                        
+                        let mimeType = 'image/jpeg';
+                        if (ext === 'png') mimeType = 'image/png';
+                        else if (ext === 'gif') mimeType = 'image/gif';
+                        
+                        const file = new File([blob], filename, { type: mimeType });
+                        
+                        if (file.size > MAX_INDIVIDUAL_SIZE) {
+                            console.log(`Skipping large file from zip: ${filename}`);
+                            continue;
+                        }
+                        
+                        uploadedFiles.push({
+                            file: file,
+                            source: 'zip',
+                            zipName: zipFile.name,
+                            type: 'image'
+                        });
+                        extractedCount++;
+                        
+                    } catch (error) {
+                        console.error(`Error extracting ${filename}:`, error);
+                    }
                 }
             }
             
             extractingMsg.remove();
             
             if (extractedCount === 0) {
-                alert(`No valid images found in ${zipFile.name}`);
+                alert(`No valid banners found in ${zipFile.name}`);
             } else {
-                console.log(`Extracted ${extractedCount} images from ${zipFile.name}`);
+                console.log(`Extracted ${extractedCount} banner(s) from ${zipFile.name}`);
             }
             
         } catch (error) {
@@ -1273,22 +1336,25 @@
                 const file = item.file;
                 const fullPath = file.name;
                 
-                // Extract just the filename for display (remove zip folder path)
                 const displayName = fullPath.includes('/') 
                     ? fullPath.split('/').pop() 
                     : fullPath;
                 
-                const dimensionMatch = displayName.match(/(\d{2,4})x(\d{2,4})/);
-                let iabName = '';
+                let badges = '';
                 
-                if (dimensionMatch) {
-                    const width = parseInt(dimensionMatch[1]);
-                    const height = parseInt(dimensionMatch[2]);
-                    const iabMatch = IAB_SPECS.fixedSizes.find(spec => 
-                        spec.width === width && spec.height === height
-                    );
-                    if (iabMatch) {
-                        iabName = `<span class="iab-badge">${iabMatch.name}</span>`;
+                if (item.type === 'html5') {
+                    badges += '<span class="html5-badge">HTML5</span>';
+                } else {
+                    const dimensionMatch = displayName.match(/(\d{2,4})x(\d{2,4})/);
+                    if (dimensionMatch) {
+                        const width = parseInt(dimensionMatch[1]);
+                        const height = parseInt(dimensionMatch[2]);
+                        const iabMatch = IAB_SPECS.fixedSizes.find(spec => 
+                            spec.width === width && spec.height === height
+                        );
+                        if (iabMatch) {
+                            badges += `<span class="iab-badge">${iabMatch.name}</span>`;
+                        }
                     }
                 }
                 
@@ -1296,7 +1362,6 @@
                     ? `<span class="zip-badge" title="From ${item.zipName}">ZIP</span>` 
                     : '';
                 
-                // Show tooltip only if there's a path difference
                 const showTooltip = fullPath !== displayName;
                 
                 return `
@@ -1306,7 +1371,7 @@
                                 <span class="file-name">${displayName}</span>
                                 ${showTooltip ? `<div class="file-tooltip">${fullPath}</div>` : ''}
                             </div>
-                            ${iabName}
+                            ${badges}
                             ${sourceTag}
                         </div>
                         <div class="file-status">
@@ -1355,7 +1420,12 @@
             updateFileStatus(i, 'processing');
             
             try {
-                const result = await processImage(uploadedFiles[i].file);
+                let result;
+                if (uploadedFiles[i].type === 'html5') {
+                    result = await processHTML5Banner(uploadedFiles[i]);
+                } else {
+                    result = await processImage(uploadedFiles[i].file);
+                }
                 processedBanners.push(result);
                 updateFileStatus(i, result.hasIssues ? 'warning' : 'complete');
             } catch (error) {
@@ -1363,7 +1433,8 @@
                 processedBanners.push({
                     file: uploadedFiles[i].file,
                     error: true,
-                    errorMessage: error.message
+                    errorMessage: error.message,
+                    type: uploadedFiles[i].type
                 });
                 updateFileStatus(i, 'error');
             }
@@ -1395,6 +1466,136 @@
             `;
         }
     }
+
+    async function processHTML5Banner(bannerData) {
+        const result = {
+            file: bannerData.file,
+            fileName: bannerData.file.name,
+            type: 'html5',
+            fileSize: bannerData.file.size,
+            html5Issues: [],
+            hasIssues: false,
+            htmlContent: bannerData.htmlContent
+        };
+
+        // Validate HTML5 content
+        const html = bannerData.htmlContent;
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        // Check for parse errors
+        const parserError = doc.querySelector('parsererror');
+        if (parserError) {
+            result.html5Issues.push({
+                type: 'structure',
+                severity: 'error',
+                message: 'Malformed HTML - document contains syntax errors'
+            });
+            result.hasIssues = true;
+        }
+
+        // Check for forbidden tags
+        const foundForbiddenTags = [];
+        FORBIDDEN_TAGS.forEach(tag => {
+            const elements = doc.getElementsByTagName(tag);
+            if (elements.length > 0) {
+                foundForbiddenTags.push(tag);
+            }
+        });
+
+        if (foundForbiddenTags.length > 0) {
+            result.html5Issues.push({
+                type: 'forbidden-tags',
+                severity: 'error',
+                message: `Forbidden HTML tags found: ${foundForbiddenTags.join(', ')}`,
+                details: foundForbiddenTags
+            });
+            result.hasIssues = true;
+        }
+
+        // Check for clickTag implementation
+        const hasClickTag = html.toLowerCase().includes('clicktag') || 
+                           html.toLowerCase().includes('click_tag') ||
+                           html.toLowerCase().includes('clickTag');
+        
+        if (!hasClickTag) {
+            result.html5Issues.push({
+                type: 'clicktag',
+                severity: 'warning',
+                message: 'No clickTag implementation found - required for tracking clicks'
+            });
+            result.hasIssues = true;
+        }
+
+        // Check for meta viewport
+        const metaViewport = doc.querySelector('meta[name="viewport"]');
+        if (!metaViewport) {
+            result.html5Issues.push({
+                type: 'viewport',
+                severity: 'warning',
+                message: 'Missing meta viewport tag - recommended for responsive banners'
+            });
+            result.hasIssues = true;
+        }
+
+        // Check for external CSS (IAB recommends inline styles)
+        const externalCSS = doc.querySelectorAll('link[rel="stylesheet"]');
+        if (externalCSS.length > 0) {
+            result.html5Issues.push({
+                type: 'css',
+                severity: 'warning',
+                message: `External CSS files found (${externalCSS.length}) - IAB recommends inline styles for better performance`
+            });
+            result.hasIssues = true;
+        }
+
+        // Check for render-blocking scripts
+        const scripts = doc.querySelectorAll('script[src]');
+        const blockingScripts = [];
+        scripts.forEach(script => {
+            if (!script.hasAttribute('async') && !script.hasAttribute('defer')) {
+                blockingScripts.push(script.getAttribute('src'));
+            }
+        });
+
+        if (blockingScripts.length > 0) {
+            result.html5Issues.push({
+                type: 'scripts',
+                severity: 'warning',
+                message: `Render-blocking scripts found (${blockingScripts.length}) - use async or defer attributes`,
+                details: blockingScripts
+            });
+            result.hasIssues = true;
+        }
+
+        // Check for setTimeout/setInterval (IAB discourages for animations)
+        if (html.includes('setTimeout') || html.includes('setInterval')) {
+            result.html5Issues.push({
+                type: 'animation',
+                severity: 'warning',
+                message: 'setTimeout/setInterval detected - IAB recommends requestAnimationFrame for animations'
+            });
+            result.hasIssues = true;
+        }
+
+        // Count file requests
+        const externalResources = [
+            ...doc.querySelectorAll('script[src]'),
+            ...doc.querySelectorAll('link[rel="stylesheet"]'),
+            ...doc.querySelectorAll('img[src]')
+        ];
+
+        if (externalResources.length > 10) {
+            result.html5Issues.push({
+                type: 'file-requests',
+                severity: 'error',
+                message: `Too many file requests (${externalResources.length}) - IAB limit is 10 for initial load`
+            });
+            result.hasIssues = true;
+        }
+
+        return result;
+    }
     
     async function processImage(file) {
         return new Promise((resolve) => {
@@ -1407,6 +1608,7 @@
                     const result = {
                         file: file,
                         fileName: file.name,
+                        type: 'image',
                         width: img.width,
                         height: img.height,
                         fileSize: file.size,
@@ -1448,7 +1650,7 @@
                             if (text && confidence > 50) {
                                 result.extractedText = text;
                                 result.detectedText = text;
-                                result.wordBoundingBoxes = wordBoundingBoxes; // Store bounding boxes
+                                result.wordBoundingBoxes = wordBoundingBoxes;
                                 
                                 const cleanText = text.replace(/[^\w\s]/gi, ' ');
                                 const words = cleanText.toLowerCase().match(/\b[a-z]{2,}\b/g) || [];
@@ -1512,6 +1714,7 @@
                 failed++;
             } else {
                 const hasIABIssues = b.iabIssues && b.iabIssues.length > 0;
+                const hasHTML5Errors = b.html5Issues && b.html5Issues.some(issue => issue.severity === 'error');
                 
                 const pendingTypos = (b.typos || []).filter(typo => 
                     !sessionMemory.approvedWords.has(typo) && !sessionMemory.rejectedWords.has(typo)
@@ -1519,10 +1722,11 @@
                 const confirmedTypos = (b.typos || []).filter(typo => 
                     sessionMemory.rejectedWords.has(typo)
                 );
+                const hasHTML5Warnings = b.html5Issues && b.html5Issues.some(issue => issue.severity === 'warning');
                 
-                if (hasIABIssues) {
+                if (hasIABIssues || hasHTML5Errors) {
                     failed++;
-                } else if (pendingTypos.length > 0 || confirmedTypos.length > 0) {
+                } else if (pendingTypos.length > 0 || confirmedTypos.length > 0 || hasHTML5Warnings) {
                     warnings++;
                 } else {
                     passed++;
@@ -1556,7 +1760,59 @@
             `;
         } else {
             let html = '';
-    
+
+            // HTML5 Validation Issues (only show if HTML5 banners exist)
+            const html5Banners = processedBanners.filter(b => b.type === 'html5' && b.html5Issues && b.html5Issues.length > 0);
+            
+            if (html5Banners.length > 0) {
+                const html5Errors = html5Banners.filter(b => b.html5Issues.some(issue => issue.severity === 'error'));
+                const html5Warnings = html5Banners.filter(b => b.html5Issues.some(issue => issue.severity === 'warning'));
+                
+                if (html5Errors.length > 0) {
+                    html += `
+                        <div class="issue-category">
+                            <div class="category-header">
+                                <span class="status-icon status-error">✗</span>
+                                HTML5 Validation Errors (${html5Errors.length})
+                            </div>
+                            ${html5Errors.map(banner => `
+                                <div class="issue-item">
+                                    <strong>${banner.fileName}</strong>
+                                    <ul class="html5-issue-detail">
+                                        ${banner.html5Issues
+                                            .filter(issue => issue.severity === 'error')
+                                            .map(issue => `<li>${issue.message}</li>`)
+                                            .join('')}
+                                    </ul>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                }
+                
+                if (html5Warnings.length > 0) {
+                    html += `
+                        <div class="issue-category">
+                            <div class="category-header">
+                                <span class="status-icon status-warning">⚠</span>
+                                HTML5 Validation Warnings (${html5Warnings.length})
+                            </div>
+                            ${html5Warnings.map(banner => `
+                                <div class="issue-item">
+                                    <strong>${banner.fileName}</strong>
+                                    <ul class="html5-issue-detail">
+                                        ${banner.html5Issues
+                                            .filter(issue => issue.severity === 'warning')
+                                            .map(issue => `<li>${issue.message}</li>`)
+                                            .join('')}
+                                    </ul>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                }
+            }
+
             const sizeIssues = processedBanners.filter(b => 
                 b.iabIssues?.some(i => i.type === 'fileSize')
             );
@@ -1692,6 +1948,7 @@
                 failed++;
             } else {
                 const hasIABIssues = b.iabIssues && b.iabIssues.length > 0;
+                const hasHTML5Errors = b.html5Issues && b.html5Issues.some(issue => issue.severity === 'error');
                 
                 const pendingTypos = (b.typos || []).filter(typo => 
                     !sessionMemory.approvedWords.has(typo) && !sessionMemory.rejectedWords.has(typo)
@@ -1699,10 +1956,11 @@
                 const confirmedTypos = (b.typos || []).filter(typo => 
                     sessionMemory.rejectedWords.has(typo)
                 );
+                const hasHTML5Warnings = b.html5Issues && b.html5Issues.some(issue => issue.severity === 'warning');
                 
-                if (hasIABIssues) {
+                if (hasIABIssues || hasHTML5Errors) {
                     failed++;
-                } else if (pendingTypos.length > 0 || confirmedTypos.length > 0) {
+                } else if (pendingTypos.length > 0 || confirmedTypos.length > 0 || hasHTML5Warnings) {
                     warnings++;
                 } else {
                     passed++;
@@ -1728,12 +1986,11 @@
         const { jsPDF } = window.jspdf;
         const pdf = new jsPDF();
         
-        // Colors
         const colors = {
-            green: [5, 150, 105],      // success
-            orange: [245, 158, 11],     // warning
-            red: [220, 38, 38],         // danger
-            gray: [107, 114, 128]       // neutral
+            green: [5, 150, 105],
+            orange: [245, 158, 11],
+            red: [220, 38, 38],
+            gray: [107, 114, 128]
         };
         
         pdf.setFontSize(20);
@@ -1766,9 +2023,8 @@
         pdf.text(`Failed: ${failed}`, 30, y);
         y += 15;
         
-        pdf.setTextColor(0, 0, 0); // Reset to black
+        pdf.setTextColor(0, 0, 0);
         
-        // Categorize banners by status
         const categorizedBanners = {
             passed: [],
             warnings: [],
@@ -1780,16 +2036,18 @@
                 categorizedBanners.failed.push(banner);
             } else {
                 const hasIABIssues = banner.iabIssues && banner.iabIssues.length > 0;
+                const hasHTML5Errors = banner.html5Issues && banner.html5Issues.some(issue => issue.severity === 'error');
                 const pendingTypos = (banner.typos || []).filter(typo => 
                     !sessionMemory.approvedWords.has(typo) && !sessionMemory.rejectedWords.has(typo)
                 );
                 const confirmedTypos = (banner.typos || []).filter(typo => 
                     sessionMemory.rejectedWords.has(typo)
                 );
+                const hasHTML5Warnings = banner.html5Issues && banner.html5Issues.some(issue => issue.severity === 'warning');
                 
-                if (hasIABIssues) {
+                if (hasIABIssues || hasHTML5Errors) {
                     categorizedBanners.failed.push(banner);
-                } else if (pendingTypos.length > 0 || confirmedTypos.length > 0) {
+                } else if (pendingTypos.length > 0 || confirmedTypos.length > 0 || hasHTML5Warnings) {
                     categorizedBanners.warnings.push(banner);
                 } else {
                     categorizedBanners.passed.push(banner);
@@ -1797,7 +2055,6 @@
             }
         });
         
-        // Function to add banner details with colored status box
         function addBannerSection(title, banners, statusColor, statusText) {
             if (banners.length === 0) return;
             
@@ -1818,7 +2075,6 @@
                     y = 20;
                 }
                 
-                // Draw colored status box
                 pdf.setFillColor(...statusColor);
                 pdf.rect(20, y - 3, 4, 4, 'F');
                 
@@ -1826,7 +2082,9 @@
                 pdf.setFont(undefined, 'bold');
                 
                 let displayName = banner.fileName;
-                if (banner.iabStandard) {
+                if (banner.type === 'html5') {
+                    displayName = `${banner.fileName} (HTML5)`;
+                } else if (banner.iabStandard) {
                     displayName = `${banner.fileName} (${banner.iabStandard})`;
                 }
                 
@@ -1835,16 +2093,30 @@
                 y += 7;
                 
                 pdf.setFontSize(9);
-                pdf.text(`Dimensions: ${banner.width}×${banner.height}px`, 30, y);
-                y += 5;
-                pdf.text(`File Size: ${(banner.fileSize / 1024).toFixed(1)}KB`, 30, y);
-                y += 5;
                 
-                if (banner.iabIssues && banner.iabIssues.length > 0) {
-                    banner.iabIssues.forEach(issue => {
-                        pdf.text(`• ${issue.message}`, 30, y);
-                        y += 5;
-                    });
+                if (banner.type === 'html5') {
+                    pdf.text(`File Size: ${(banner.fileSize / 1024).toFixed(1)}KB`, 30, y);
+                    y += 5;
+                    
+                    if (banner.html5Issues && banner.html5Issues.length > 0) {
+                        banner.html5Issues.forEach(issue => {
+                            const prefix = issue.severity === 'error' ? '✗' : '⚠';
+                            pdf.text(`${prefix} ${issue.message}`, 30, y);
+                            y += 5;
+                        });
+                    }
+                } else {
+                    pdf.text(`Dimensions: ${banner.width}×${banner.height}px`, 30, y);
+                    y += 5;
+                    pdf.text(`File Size: ${(banner.fileSize / 1024).toFixed(1)}KB`, 30, y);
+                    y += 5;
+                    
+                    if (banner.iabIssues && banner.iabIssues.length > 0) {
+                        banner.iabIssues.forEach(issue => {
+                            pdf.text(`• ${issue.message}`, 30, y);
+                            y += 5;
+                        });
+                    }
                 }
                 
                 const confirmedTypos = (banner.typos || []).filter(typo => 
@@ -1862,7 +2134,6 @@
             y += 5;
         }
         
-        // Add sections in order: Passed, Warnings, Failed
         addBannerSection(`Passed Banners (${categorizedBanners.passed.length})`, 
                          categorizedBanners.passed, colors.green, 'PASSED');
         
@@ -1885,19 +2156,17 @@
         title.textContent = `Banners containing "${word}"`;
         
         const bannersWithTypo = processedBanners.filter(banner => 
-            banner.typos && banner.typos.includes(word)
+            banner.typos && banner.typos.includes(word) && banner.type === 'image'
         );
         
         currentCarouselBanners = bannersWithTypo;
         currentCarouselIndex = 0;
         
         const bannerItemsHTML = bannersWithTypo.map((banner, idx) => {
-            // Find all bounding boxes for this word
             const matchingBoxes = banner.wordBoundingBoxes 
                 ? banner.wordBoundingBoxes.filter(box => box.word === word.toLowerCase())
                 : [];
             
-            // Create SVG overlay with red rectangles
             let svgOverlay = '';
             if (matchingBoxes.length > 0) {
                 const rects = matchingBoxes.map(box => {
