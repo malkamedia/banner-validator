@@ -742,6 +742,54 @@
             animation: spin 0.8s linear infinite;
             margin-right: var(--space-2);
         }
+       
+        /* Tooltip for file paths */
+        .file-name-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .file-tooltip {
+            visibility: hidden;
+            position: absolute;
+            bottom: 125%;
+            left: 0;
+            background-color: #1f2937;
+            color: white;
+            padding: var(--space-2) var(--space-3);
+            border-radius: var(--border-radius);
+            font-size: var(--font-size-xs);
+            white-space: nowrap;
+            z-index: 100;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
+        }
+        
+        .file-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 20px;
+            border: 5px solid transparent;
+            border-top-color: #1f2937;
+        }
+        
+        .file-name-wrapper:hover .file-tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+        
+        .zip-badge {
+            background: #dbeafe;
+            color: var(--color-primary);
+            padding: 2px 8px;
+            border-radius: var(--border-radius-sm);
+            font-size: var(--font-size-xs);
+            font-weight: 600;
+            margin-left: var(--space-2);
+            margin-right: var(--space-3); /* Added spacing to the right */
+        }
     </style>
 </head>
 <body>
@@ -1208,7 +1256,14 @@
         } else {
             queueEl.innerHTML = uploadedFiles.map((item, index) => {
                 const file = item.file;
-                const dimensionMatch = file.name.match(/(\d{2,4})x(\d{2,4})/);
+                const fullPath = file.name;
+                
+                // Extract just the filename for display (remove zip folder path)
+                const displayName = fullPath.includes('/') 
+                    ? fullPath.split('/').pop() 
+                    : fullPath;
+                
+                const dimensionMatch = displayName.match(/(\d{2,4})x(\d{2,4})/);
                 let iabName = '';
                 
                 if (dimensionMatch) {
@@ -1226,10 +1281,16 @@
                     ? `<span class="zip-badge" title="From ${item.zipName}">ZIP</span>` 
                     : '';
                 
+                // Show tooltip only if there's a path difference
+                const showTooltip = fullPath !== displayName;
+                
                 return `
                     <div class="file-item" data-index="${index}">
                         <div class="file-info">
-                            <span class="file-name">${file.name}</span>
+                            <div class="file-name-wrapper">
+                                <span class="file-name">${displayName}</span>
+                                ${showTooltip ? `<div class="file-tooltip">${fullPath}</div>` : ''}
+                            </div>
                             ${iabName}
                             ${sourceTag}
                         </div>
@@ -1735,7 +1796,7 @@
         const title = document.getElementById('previewTitle');
         const actions = document.getElementById('previewActions');
         
-        title.textContent = `Banners containing "${word}"`;
+        title.textContent = `Potential Typo: "${word}"`;
         
         const bannersWithTypo = processedBanners.filter(banner => 
             banner.typos && banner.typos.includes(word)
@@ -1749,7 +1810,6 @@
                 <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
                 <div class="banner-preview-name">${banner.fileName}</div>
                 ${banner.iabStandard ? `<div class="iab-badge" style="margin-top: 4px;">${banner.iabStandard}</div>` : ''}
-                ${banner.detectedText ? `<div style="margin-top: 8px; padding: 8px; background: #f3f4f6; border-radius: 4px; font-size: 11px; color: #4b5563; text-align: left;"><strong>Detected text:</strong> "${banner.detectedText.substring(0, 150)}${banner.detectedText.length > 150 ? '...' : ''}"</div>` : ''}
             </div>
         `).join('');
         
