@@ -583,6 +583,13 @@
             display: block;
         }
 
+        .banner-preview-iframe {
+            border: 1px solid var(--color-gray-300);
+            margin: 0 auto;
+            display: block;
+            background: white;
+        }
+
         .banner-preview-name {
             font-size: var(--font-size-base);
             color: var(--color-gray-900);
@@ -1844,13 +1851,15 @@
                                 <span class="status-icon status-error">✗</span>
                                 HTML5 Validation Errors (${html5Errors.length})
                             </div>
-                            ${html5Errors.map((banner, idx) => {
+                                ${html5Errors.map((banner, idx) => {
                                 const errorCount = banner.html5Issues.filter(issue => issue.severity === 'error').length;
+                                const bannerIndex = processedBanners.indexOf(banner);
                                 return `
                                     <div class="issue-accordion" onclick="toggleAccordion(this)">
                                         <span class="accordion-caret">▶</span>
                                         <strong style="margin-right: var(--space-2);">${banner.fileName}</strong>
                                         <span class="accordion-summary error">${errorCount} Critical Error${errorCount > 1 ? 's' : ''} Found</span>
+                                        <span class="view-banners-link" onclick="event.stopPropagation(); showHTML5Preview(${bannerIndex})">View banner</span>
                                     </div>
                                     <div class="accordion-content">
                                         <div class="accordion-content-inner">
@@ -1875,13 +1884,15 @@
                                 <span class="status-icon status-warning">⚠</span>
                                 HTML5 Validation Warnings (${html5Warnings.length})
                             </div>
-                            ${html5Warnings.map((banner, idx) => {
+                                ${html5Warnings.map((banner, idx) => {
                                 const warningCount = banner.html5Issues.filter(issue => issue.severity === 'warning').length;
+                                const bannerIndex = processedBanners.indexOf(banner);
                                 return `
                                     <div class="issue-accordion" onclick="toggleAccordion(this)">
                                         <span class="accordion-caret">▶</span>
                                         <strong style="margin-right: var(--space-2);">${banner.fileName}</strong>
                                         <span class="accordion-summary warning">${warningCount} Warning${warningCount > 1 ? 's' : ''} Found</span>
+                                        <span class="view-banners-link" onclick="event.stopPropagation(); showHTML5Preview(${bannerIndex})">View banner</span>
                                     </div>
                                     <div class="accordion-content">
                                         <div class="accordion-content-inner">
@@ -2272,53 +2283,72 @@
         title.textContent = `Banners containing "${word}"`;
         
         const bannersWithTypo = processedBanners.filter(banner => 
-            banner.typos && banner.typos.includes(word) && banner.type === 'image'
+            banner.typos && banner.typos.includes(word)
         );
         
         currentCarouselBanners = bannersWithTypo;
         currentCarouselIndex = 0;
         
         const bannerItemsHTML = bannersWithTypo.map((banner, idx) => {
-            const matchingBoxes = banner.wordBoundingBoxes 
-                ? banner.wordBoundingBoxes.filter(box => box.word === word.toLowerCase())
-                : [];
-            
-            let svgOverlay = '';
-            if (matchingBoxes.length > 0) {
-                const rects = matchingBoxes.map(box => {
-                    const vertices = box.vertices;
-                    const minX = Math.min(...vertices.map(v => v.x || 0));
-                    const minY = Math.min(...vertices.map(v => v.y || 0));
-                    const maxX = Math.max(...vertices.map(v => v.x || 0));
-                    const maxY = Math.max(...vertices.map(v => v.y || 0));
-                    const width = maxX - minX;
-                    const height = maxY - minY;
-                    
-                    return `<rect x="${minX}" y="${minY}" width="${width}" height="${height}" 
-                            fill="none" stroke="red" stroke-width="3" />`;
-                }).join('');
+            if (banner.type === 'html5') {
+                // HTML5 banner preview
+                return `
+                    <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
+                        <iframe class="banner-preview-iframe" 
+                                srcdoc="${escapeHtml(banner.htmlContent)}"
+                                sandbox="allow-scripts allow-same-origin allow-popups"
+                                style="width: 800px; height: 600px;"
+                                scrolling="no">
+                        </iframe>
+                        <div class="banner-preview-name">${banner.fileName}</div>
+                        <div style="margin-top: 12px; padding: 10px; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 4px; font-size: 13px; color: #78350f;">
+                            <strong>HTML5 Banner</strong> - Click inside to test interactions
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Image banner preview
+                const matchingBoxes = banner.wordBoundingBoxes 
+                    ? banner.wordBoundingBoxes.filter(box => box.word === word.toLowerCase())
+                    : [];
                 
-                svgOverlay = `
-                    <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"
-                         viewBox="0 0 ${banner.width} ${banner.height}" 
-                         preserveAspectRatio="xMidYMid meet">
-                        ${rects}
-                    </svg>
+                let svgOverlay = '';
+                if (matchingBoxes.length > 0) {
+                    const rects = matchingBoxes.map(box => {
+                        const vertices = box.vertices;
+                        const minX = Math.min(...vertices.map(v => v.x || 0));
+                        const minY = Math.min(...vertices.map(v => v.y || 0));
+                        const maxX = Math.max(...vertices.map(v => v.x || 0));
+                        const maxY = Math.max(...vertices.map(v => v.y || 0));
+                        const width = maxX - minX;
+                        const height = maxY - minY;
+                        
+                        return `<rect x="${minX}" y="${minY}" width="${width}" height="${height}" 
+                                fill="none" stroke="red" stroke-width="3" />`;
+                    }).join('');
+                    
+                    svgOverlay = `
+                        <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"
+                             viewBox="0 0 ${banner.width} ${banner.height}" 
+                             preserveAspectRatio="xMidYMid meet">
+                            ${rects}
+                        </svg>
+                    `;
+                }
+                
+                return `
+                    <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
+                        <div style="position: relative; display: inline-block;">
+                            <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
+                            ${svgOverlay}
+                        </div>
+                        <div class="banner-preview-name">${banner.fileName}</div>
+                        <div style="margin-top: 12px; padding: 10px; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 4px; font-size: 13px; color: #78350f;">
+                            <strong>Potential Typo:</strong> "${word}" (${matchingBoxes.length} occurrence${matchingBoxes.length !== 1 ? 's' : ''})
+                        </div>
+                    </div>
                 `;
             }
-            
-            return `
-                <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
-                    <div style="position: relative; display: inline-block;">
-                        <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
-                        ${svgOverlay}
-                    </div>
-                    <div class="banner-preview-name">${banner.fileName}</div>
-                    <div style="margin-top: 12px; padding: 10px; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 4px; font-size: 13px; color: #78350f;">
-                        <strong>Potential Typo:</strong> "${word}" (${matchingBoxes.length} occurrence${matchingBoxes.length !== 1 ? 's' : ''})
-                    </div>
-                </div>
-            `;
         }).join('');
         
         const navButtons = carousel.querySelector('.carousel-nav');
@@ -2341,6 +2371,62 @@
         `;
         
         modal.classList.add('active');
+    }
+
+    function showHTML5Preview(bannerIndex) {
+        const banner = processedBanners[bannerIndex];
+        
+        if (!banner || banner.type !== 'html5') {
+            console.error('Invalid HTML5 banner');
+            return;
+        }
+        
+        const modal = document.getElementById('previewModal');
+        const carousel = document.getElementById('bannerCarousel');
+        const dots = document.getElementById('carouselDots');
+        const title = document.getElementById('previewTitle');
+        const actions = document.getElementById('previewActions');
+        
+        title.textContent = `HTML5 Banner Preview: ${banner.fileName}`;
+        
+        currentCarouselBanners = [banner];
+        currentCarouselIndex = 0;
+        
+        const bannerItemHTML = `
+            <div class="banner-preview-item active" data-index="0">
+                <iframe class="banner-preview-iframe" 
+                        srcdoc="${escapeHtml(banner.htmlContent)}"
+                        sandbox="allow-scripts allow-same-origin allow-popups"
+                        style="width: 800px; height: 600px;"
+                        scrolling="no">
+                </iframe>
+                <div class="banner-preview-name">${banner.fileName}</div>
+                <div style="margin-top: 12px; padding: 10px; background: #e0e7ff; border: 1px solid #6366f1; border-radius: 4px; font-size: 13px; color: #312e81;">
+                    <strong>HTML5 Banner</strong> - Animations will auto-play. Click inside to test interactions.
+                </div>
+            </div>
+        `;
+        
+        const navButtons = carousel.querySelector('.carousel-nav');
+        carousel.innerHTML = bannerItemHTML;
+        carousel.appendChild(navButtons);
+        
+        dots.innerHTML = '<div class="carousel-dot active"></div>';
+        
+        updateCarouselButtons();
+        
+        actions.innerHTML = '';
+        
+        modal.classList.add('active');
+    }
+    
+    function escapeHtml(html) {
+        return html
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
     
     function navigateCarousel(direction) {
