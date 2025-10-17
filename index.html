@@ -1728,6 +1728,14 @@
         const { jsPDF } = window.jspdf;
         const pdf = new jsPDF();
         
+        // Colors
+        const colors = {
+            green: [5, 150, 105],      // success
+            orange: [245, 158, 11],     // warning
+            red: [220, 38, 38],         // danger
+            gray: [107, 114, 128]       // neutral
+        };
+        
         pdf.setFontSize(20);
         pdf.text('Banner Validation Report', 20, 20);
         
@@ -1748,59 +1756,121 @@
         
         pdf.text(`Total Banners: ${total}`, 30, y);
         y += 7;
+        pdf.setTextColor(...colors.green);
         pdf.text(`Passed: ${passed}`, 30, y);
         y += 7;
+        pdf.setTextColor(...colors.orange);
         pdf.text(`Warnings: ${warnings}`, 30, y);
         y += 7;
+        pdf.setTextColor(...colors.red);
         pdf.text(`Failed: ${failed}`, 30, y);
         y += 15;
         
-        pdf.setFontSize(14);
-        pdf.text('Banner Details', 20, y);
-        y += 10;
+        pdf.setTextColor(0, 0, 0); // Reset to black
+        
+        // Categorize banners by status
+        const categorizedBanners = {
+            passed: [],
+            warnings: [],
+            failed: []
+        };
         
         processedBanners.forEach(banner => {
+            if (banner.error) {
+                categorizedBanners.failed.push(banner);
+            } else {
+                const hasIABIssues = banner.iabIssues && banner.iabIssues.length > 0;
+                const pendingTypos = (banner.typos || []).filter(typo => 
+                    !sessionMemory.approvedWords.has(typo) && !sessionMemory.rejectedWords.has(typo)
+                );
+                const confirmedTypos = (banner.typos || []).filter(typo => 
+                    sessionMemory.rejectedWords.has(typo)
+                );
+                
+                if (hasIABIssues) {
+                    categorizedBanners.failed.push(banner);
+                } else if (pendingTypos.length > 0 || confirmedTypos.length > 0) {
+                    categorizedBanners.warnings.push(banner);
+                } else {
+                    categorizedBanners.passed.push(banner);
+                }
+            }
+        });
+        
+        // Function to add banner details with colored status box
+        function addBannerSection(title, banners, statusColor, statusText) {
+            if (banners.length === 0) return;
+            
             if (y > 250) {
                 pdf.addPage();
                 y = 20;
             }
             
-            pdf.setFontSize(11);
+            pdf.setFontSize(14);
             pdf.setFont(undefined, 'bold');
-            
-            let displayName = banner.fileName;
-            if (banner.iabStandard) {
-                displayName = `${banner.fileName} (${banner.iabStandard})`;
-            }
-            
-            pdf.text(displayName, 20, y);
+            pdf.text(title, 20, y);
             pdf.setFont(undefined, 'normal');
-            y += 7;
+            y += 10;
             
-            pdf.setFontSize(9);
-            pdf.text(`Dimensions: ${banner.width}×${banner.height}px`, 30, y);
-            y += 5;
-            pdf.text(`File Size: ${(banner.fileSize / 1024).toFixed(1)}KB`, 30, y);
-            y += 5;
-            
-            if (banner.iabIssues && banner.iabIssues.length > 0) {
-                banner.iabIssues.forEach(issue => {
-                    pdf.text(`• ${issue.message}`, 30, y);
-                    y += 5;
-                });
-            }
-            
-            const confirmedTypos = (banner.typos || []).filter(typo => 
-                sessionMemory.rejectedWords.has(typo)
-            );
-            
-            if (confirmedTypos.length > 0) {
-                pdf.text(`• Confirmed Typos: ${confirmedTypos.join(', ')}`, 30, y);
+            banners.forEach(banner => {
+                if (y > 250) {
+                    pdf.addPage();
+                    y = 20;
+                }
+                
+                // Draw colored status box
+                pdf.setFillColor(...statusColor);
+                pdf.rect(20, y - 3, 4, 4, 'F');
+                
+                pdf.setFontSize(11);
+                pdf.setFont(undefined, 'bold');
+                
+                let displayName = banner.fileName;
+                if (banner.iabStandard) {
+                    displayName = `${banner.fileName} (${banner.iabStandard})`;
+                }
+                
+                pdf.text(displayName, 27, y);
+                pdf.setFont(undefined, 'normal');
+                y += 7;
+                
+                pdf.setFontSize(9);
+                pdf.text(`Dimensions: ${banner.width}×${banner.height}px`, 30, y);
                 y += 5;
-            }
+                pdf.text(`File Size: ${(banner.fileSize / 1024).toFixed(1)}KB`, 30, y);
+                y += 5;
+                
+                if (banner.iabIssues && banner.iabIssues.length > 0) {
+                    banner.iabIssues.forEach(issue => {
+                        pdf.text(`• ${issue.message}`, 30, y);
+                        y += 5;
+                    });
+                }
+                
+                const confirmedTypos = (banner.typos || []).filter(typo => 
+                    sessionMemory.rejectedWords.has(typo)
+                );
+                
+                if (confirmedTypos.length > 0) {
+                    pdf.text(`• Confirmed Typos: ${confirmedTypos.join(', ')}`, 30, y);
+                    y += 5;
+                }
+                
+                y += 3;
+            });
             
             y += 5;
-        });
+        }
+        
+        // Add sections in order: Passed, Warnings, Failed
+        addBannerSection(`Passed Banners (${categorizedBanners.passed.length})`, 
+                         categorizedBanners.passed, colors.green, 'PASSED');
+        
+        addBannerSection(`Warnings (${categorizedBanners.warnings.length})`, 
+                         categorizedBanners.warnings, colors.orange, 'WARNING');
+        
+        addBannerSection(`Failed Banners (${categorizedBanners.failed.length})`, 
+                         categorizedBanners.failed, colors.red, 'FAILED');
         
         pdf.save(`banner-validation-report-${Date.now()}.pdf`);
     }
