@@ -2663,6 +2663,9 @@
         }
         
         goToSlide(newIndex);
+        
+        // Update the modal title with current position
+        updateModalTitle();
     }
     
     function goToSlide(index) {
@@ -2678,6 +2681,22 @@
         currentCarouselIndex = index;
         
         updateCarouselButtons();
+        
+        // Update the modal title with current position
+        updateModalTitle();
+    }
+
+    function updateModalTitle() {
+    const title = document.getElementById('previewTitle');
+    const currentBanner = currentCarouselBanners[currentCarouselIndex];
+    
+    // Find the position of this banner in the overall processedBanners array
+    const overallIndex = processedBanners.indexOf(currentBanner);
+    const totalBanners = processedBanners.length;
+    
+    // Update title to show current position
+    const displayName = currentBanner.zipName ? currentBanner.zipName : currentBanner.fileName;
+    title.textContent = `HTML5 Banner Preview (${overallIndex + 1} of ${totalBanners})`;
     }
     
     function updateCarouselButtons() {
