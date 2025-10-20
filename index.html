@@ -2457,25 +2457,52 @@
                     // Determine correct MIME type
                     let mimeType = 'application/octet-stream';
                     const ext = filename.split('.').pop().toLowerCase();
-                    if (ext === 'png') mimeType = 'image/png';
-                    else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
-                    else if (ext === 'gif') mimeType = 'image/gif';
-                    else if (ext === 'svg') mimeType = 'image/svg+xml';
-                    else if (ext === 'js') mimeType = 'text/javascript';
-                    else if (ext === 'css') mimeType = 'text/css';
+                    
+                    const mimeTypes = {
+                        'png': 'image/png',
+                        'jpg': 'image/jpeg',
+                        'jpeg': 'image/jpeg',
+                        'gif': 'image/gif',
+                        'svg': 'image/svg+xml',
+                        'webp': 'image/webp',
+                        'js': 'text/javascript',
+                        'css': 'text/css',
+                        'woff': 'font/woff',
+                        'woff2': 'font/woff2',
+                        'ttf': 'font/ttf',
+                        'otf': 'font/otf'
+                    };
+                    
+                    mimeType = mimeTypes[ext] || mimeType;
                     
                     // Create properly typed blob
                     const typedBlob = new Blob([blob], { type: mimeType });
                     
                     // Convert to base64
                     const reader = new FileReader();
-                    const base64 = await new Promise((resolve) => {
-                        reader.onloadend = () => resolve(reader.result);
+                    const base64 = await new Promise((resolve, reject) => {
+                        reader.onloadend = () => {
+                            // Validate base64 string
+                            const result = reader.result;
+                            if (result && result.startsWith('data:')) {
+                                resolve(result);
+                            } else {
+                                reject(new Error(`Invalid base64 for ${filename}`));
+                            }
+                        };
+                        reader.onerror = () => reject(reader.error);
                         reader.readAsDataURL(typedBlob);
                     });
                     
                     fileDataURIs[filename] = base64;
-                    console.log(`Created data URI for: ${filename} (${mimeType})`);
+                    
+                    // Also store with path variations for matching
+                    const justFilename = filename.split('/').pop();
+                    const withDotSlash = './' + filename;
+                    
+                    fileDataURIs[justFilename] = base64;
+                    fileDataURIs[withDotSlash] = base64;
+                    
                 } catch (error) {
                     console.error(`Error creating data URI for ${filename}:`, error);
                 }
@@ -2487,45 +2514,70 @@
         
         // Replace all file references with data URIs
         for (const [filename, dataURI] of Object.entries(fileDataURIs)) {
-            // Escape special characters in filename for regex
-            const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // Skip if this is a duplicate entry (path variation)
+            if (!banner.zipFiles || !banner.zipFiles[filename]) continue;
             
-            // Replace various patterns - be very aggressive:
+            // Get all possible variations of the filename
+            const filenameVariations = [
+                filename,
+                './' + filename,
+                filename.split('/').pop() // just the filename without path
+            ];
             
-            // 1. src="filename" or src='filename' or src=`filename`
-            updatedHTML = updatedHTML.replace(
-                new RegExp(`(src\\s*=\\s*)(['"\`])${escapedFilename}\\2`, 'gi'),
-                `$1"${dataURI}"`
-            );
-            
-            // 2. href="filename" or href='filename' or href=`filename`
-            updatedHTML = updatedHTML.replace(
-                new RegExp(`(href\\s*=\\s*)(['"\`])${escapedFilename}\\2`, 'gi'),
-                `$1"${dataURI}"`
-            );
-            
-            // 3. url(filename) or url("filename") or url('filename') in CSS
-            updatedHTML = updatedHTML.replace(
-                new RegExp(`url\\(\\s*(['"\`]?)${escapedFilename}\\1\\s*\\)`, 'gi'),
-                `url("${dataURI}")`
-            );
-            
-            // 4. xlink:href for SVG
-            updatedHTML = updatedHTML.replace(
-                new RegExp(`(xlink:href\\s*=\\s*)(['"\`])${escapedFilename}\\2`, 'gi'),
-                `$1"${dataURI}"`
-            );
-            
-            // 5. Plain quotes with the filename (catch-all for any missed cases)
-            // This is aggressive but necessary
-            updatedHTML = updatedHTML.replace(
-                new RegExp(`(['"\`])${escapedFilename}\\1`, 'g'),
-                `"${dataURI}"`
-            );
+            for (const fileVariant of filenameVariations) {
+                // Escape special regex characters
+                const escapedFilename = fileVariant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                
+                // 1. Google Web Designer <gwd-image source="...">
+                updatedHTML = updatedHTML.replace(
+                    new RegExp(`(<gwd-image[^>]*source\\s*=\\s*)(['"\`])${escapedFilename}\\2`, 'gi'),
+                    `$1"${dataURI}"`
+                );
+                
+                // 2. Standard img src="..." or src='...' or src=`...`
+                updatedHTML = updatedHTML.replace(
+                    new RegExp(`(<img[^>]*src\\s*=\\s*)(['"\`])${escapedFilename}\\2`, 'gi'),
+                    `$1"${dataURI}"`
+                );
+                
+                // 3. Generic src="..." (catches video, audio, etc.)
+                updatedHTML = updatedHTML.replace(
+                    new RegExp(`(\\ssrc\\s*=\\s*)(['"\`])${escapedFilename}\\2`, 'gi'),
+                    `$1"${dataURI}"`
+                );
+                
+                // 4. href="..." for links and stylesheets
+                updatedHTML = updatedHTML.replace(
+                    new RegExp(`(\\shref\\s*=\\s*)(['"\`])${escapedFilename}\\2`, 'gi'),
+                    `$1"${dataURI}"`
+                );
+                
+                // 5. CSS url() - all variations: url("..."), url('...'), url(...)
+                updatedHTML = updatedHTML.replace(
+                    new RegExp(`url\\(\\s*(['"\`]?)${escapedFilename}\\1\\s*\\)`, 'gi'),
+                    `url("${dataURI}")`
+                );
+                
+                // 6. xlink:href for SVG (including in style attributes)
+                updatedHTML = updatedHTML.replace(
+                    new RegExp(`(xlink:href\\s*=\\s*)(['"\`])${escapedFilename}\\2`, 'gi'),
+                    `$1"${dataURI}"`
+                );
+                
+                // 7. data attribute references (data-src, data-image, etc.)
+                updatedHTML = updatedHTML.replace(
+                    new RegExp(`(data-[a-z-]*\\s*=\\s*)(['"\`])${escapedFilename}\\2`, 'gi'),
+                    `$1"${dataURI}"`
+                );
+                
+                // 8. JavaScript string references - be careful with this one
+                // Matches strings in JS like "filename" or 'filename' but not in URLs
+                updatedHTML = updatedHTML.replace(
+                    new RegExp(`(['"\`])${escapedFilename}\\1`, 'g'),
+                    `"${dataURI}"`
+                );
+            }
         }
-        
-        console.log('HTML updated with base64 data URIs');
-        console.log('Total files embedded:', Object.keys(fileDataURIs).length);
         
         return updatedHTML;
     }
