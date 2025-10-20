@@ -562,17 +562,21 @@
             align-items: center;
             justify-content: center;
             min-height: 400px;
-            padding: var(--space-4) 80px;
+            padding: var(--space-6) 80px;
         }
-
+        
         .banner-preview-item {
             display: none;
             text-align: center;
             width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
         }
-
+        
         .banner-preview-item.active {
-            display: block;
+            display: flex;
         }
 
         .banner-preview-image {
@@ -585,12 +589,10 @@
 
         .banner-preview-iframe {
             border: 1px solid var(--color-gray-300);
-            margin: 0 auto;
-            display: block;
             background: white;
         }
 
-        .banner-preview-name {
+        .e {
             font-size: var(--font-size-base);
             color: var(--color-gray-900);
             font-weight: 400;
@@ -1547,11 +1549,13 @@
         const result = {
             file: bannerData.file,
             fileName: bannerData.file.name,
+            zipName: bannerData.zipName || bannerData.file.name,
             type: 'html5',
             fileSize: bannerData.file.size,
             html5Issues: [],
             hasIssues: false,
-            htmlContent: bannerData.htmlContent
+            htmlContent: bannerData.htmlContent,
+            zipFiles: bannerData.zipFiles
         };
 
         // Validate HTML5 content
@@ -2300,7 +2304,7 @@
                                 style="width: 800px; height: 600px;"
                                 scrolling="no">
                         </iframe>
-                        <div class="banner-preview-name">${banner.fileName}</div>
+                        <div class="banner-preview-name">${displayName}</div>
                         <div style="margin-top: 12px; padding: 10px; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 4px; font-size: 13px; color: #78350f;">
                             <strong>HTML5 Banner</strong> - Click inside to test interactions
                         </div>
@@ -2359,6 +2363,16 @@
             `<div class="carousel-dot ${idx === 0 ? 'active' : ''}" onclick="goToSlide(${idx})"></div>`
         ).join('');
         
+        // Hide carousel controls if only one banner
+        const navButtons = carousel.querySelector('.carousel-nav');
+        if (bannersWithTypo.length === 1) {
+            navButtons.style.display = 'none';
+            dots.style.display = 'none';
+        } else {
+            navButtons.style.display = 'flex';
+            dots.style.display = 'flex';
+        }
+        
         updateCarouselButtons();
         
         actions.innerHTML = `
@@ -2387,37 +2401,101 @@
         const title = document.getElementById('previewTitle');
         const actions = document.getElementById('previewActions');
         
-        title.textContent = `HTML5 Banner Preview: ${banner.fileName}`;
+        const displayName = banner.zipName ? banner.zipName : banner.fileName;
+        title.textContent = `HTML5 Banner Preview: ${displayName}`;
         
         currentCarouselBanners = [banner];
         currentCarouselIndex = 0;
         
-        const bannerItemHTML = `
-            <div class="banner-preview-item active" data-index="0">
-                <iframe class="banner-preview-iframe" 
-                        srcdoc="${escapeHtml(banner.htmlContent)}"
-                        sandbox="allow-scripts allow-same-origin allow-popups"
-                        style="width: 800px; height: 600px;"
-                        scrolling="no">
-                </iframe>
-                <div class="banner-preview-name">${banner.fileName}</div>
-                <div style="margin-top: 12px; padding: 10px; background: #e0e7ff; border: 1px solid #6366f1; border-radius: 4px; font-size: 13px; color: #312e81;">
-                    <strong>HTML5 Banner</strong> - Animations will auto-play. Click inside to test interactions.
+        // Create a blob URL for the HTML content with embedded resources
+        createHTML5BlobURL(banner).then(blobURL => {
+            const bannerItemHTML = `
+                <div class="banner-preview-item active" data-index="0">
+                    <iframe class="banner-preview-iframe" 
+                            src="${blobURL}"
+                            sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                            scrolling="no">
+                    </iframe>
+                    <div class="banner-preview-name">${displayName}</div>
+                    <div style="margin-top: 12px; padding: 10px; background: #e0e7ff; border: 1px solid #6366f1; border-radius: 4px; font-size: 13px; color: #312e81;">
+                        <strong>HTML5 Banner</strong> - Animations will auto-play. Click inside to test interactions.
+                    </div>
                 </div>
-            </div>
-        `;
+            `;
+            
+            const navButtons = carousel.querySelector('.carousel-nav');
+            carousel.innerHTML = bannerItemHTML;
+            carousel.appendChild(navButtons);
+            
+            dots.innerHTML = '<div class="carousel-dot active"></div>';
+            
+            // Hide carousel controls for single banner
+            navButtons.style.display = 'none';
+            dots.style.display = 'none';
+            
+            updateCarouselButtons();
+            
+            actions.innerHTML = '';
+            
+            // Get dimensions from HTML or use defaults
+            const dimensions = extractBannerDimensions(banner.htmlContent);
+            const iframe = carousel.querySelector('.banner-preview-iframe');
+            iframe.style.width = dimensions.width + 'px';
+            iframe.style.height = dimensions.height + 'px';
+            
+            modal.classList.add('active');
+        });
+    }
+    
+    async function createHTML5BlobURL(banner) {
+        // Create object URLs for all files in the ZIP
+        const fileURLs = {};
         
-        const navButtons = carousel.querySelector('.carousel-nav');
-        carousel.innerHTML = bannerItemHTML;
-        carousel.appendChild(navButtons);
+        if (banner.zipFiles) {
+            for (const [filename, zipEntry] of Object.entries(banner.zipFiles)) {
+                try {
+                    const blob = await zipEntry.async('blob');
+                    const url = URL.createObjectURL(blob);
+                    fileURLs[filename] = url;
+                } catch (error) {
+                    console.error(`Error creating URL for ${filename}:`, error);
+                }
+            }
+        }
         
-        dots.innerHTML = '<div class="carousel-dot active"></div>';
+        // Update HTML content to use blob URLs
+        let updatedHTML = banner.htmlContent;
         
-        updateCarouselButtons();
+        // Replace relative paths with blob URLs
+        for (const [filename, url] of Object.entries(fileURLs)) {
+            const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // Match various quote styles and formats
+            updatedHTML = updatedHTML.replace(
+                new RegExp(`(['"\`])${escapedFilename}\\1`, 'g'),
+                `'${url}'`
+            );
+            updatedHTML = updatedHTML.replace(
+                new RegExp(`(src|href)=(['"\`])${escapedFilename}\\2`, 'gi'),
+                `$1='${url}'`
+            );
+        }
         
-        actions.innerHTML = '';
+        // Create blob for the updated HTML
+        const htmlBlob = new Blob([updatedHTML], { type: 'text/html' });
+        return URL.createObjectURL(htmlBlob);
+    }
+    
+    function extractBannerDimensions(htmlContent) {
+        // Try to extract dimensions from meta tags
+        const widthMatch = htmlContent.match(/meta.*ad\.size.*width=(\d+)/i) || 
+                          htmlContent.match(/width["\s:=]+(\d{2,4})/i);
+        const heightMatch = htmlContent.match(/meta.*ad\.size.*height=(\d+)/i) || 
+                           htmlContent.match(/height["\s:=]+(\d{2,4})/i);
         
-        modal.classList.add('active');
+        return {
+            width: widthMatch ? parseInt(widthMatch[1]) : 300,
+            height: heightMatch ? parseInt(heightMatch[1]) : 250
+        };
     }
     
     function escapeHtml(html) {
