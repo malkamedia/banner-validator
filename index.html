@@ -592,6 +592,14 @@
             background: white;
         }
 
+        .banner-preview-name {
+            font-size: var(--font-size-base);
+            color: var(--color-gray-900);
+            font-weight: 400;
+            margin-top: var(--space-6);
+            margin-bottom: var(--space-2);
+        }
+
         .e {
             font-size: var(--font-size-base);
             color: var(--color-gray-900);
@@ -2293,26 +2301,28 @@
         currentCarouselBanners = bannersWithTypo;
         currentCarouselIndex = 0;
         
-        const bannerItemsHTML = bannersWithTypo.map((banner, idx) => {
+        const createBannerItemHTML = (banner, idx) => {
             if (banner.type === 'html5') {
-                // HTML5 banner preview
                 const displayName = banner.zipName ? banner.zipName : banner.fileName;
-                return `
-                    <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
-                        <iframe class="banner-preview-iframe" 
-                                srcdoc="${escapeHtml(banner.htmlContent)}"
-                                sandbox="allow-scripts allow-same-origin allow-popups"
-                                style="width: 800px; height: 600px;"
-                                scrolling="no">
-                        </iframe>
-                        <div class="banner-preview-name">${displayName}</div>
-                        <div style="margin-top: 12px; padding: 10px; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 4px; font-size: 13px; color: #78350f;">
-                            <strong>HTML5 Banner</strong> - Click inside to test interactions
+                const dimensions = extractBannerDimensions(banner);
+                
+                return createInlineHTML5(banner).then(inlineHTML => {
+                    return `
+                        <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
+                            <iframe class="banner-preview-iframe" 
+                                    srcdoc="${inlineHTML.replace(/"/g, '&quot;')}"
+                                    sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                                    style="width: ${dimensions.width}px; height: ${dimensions.height}px;"
+                                    scrolling="no">
+                            </iframe>
+                            <div class="banner-preview-name">${displayName}</div>
+                            <div style="margin-top: 12px; padding: 10px; background: #e0e7ff; border: 1px solid #6366f1; border-radius: 4px; font-size: 13px; color: #312e81; text-align: center;">
+                                <strong>HTML5</strong>
+                            </div>
                         </div>
-                    </div>
-                `;
+                    `;
+                });
             } else {
-                // Image banner preview
                 const matchingBoxes = banner.wordBoundingBoxes 
                     ? banner.wordBoundingBoxes.filter(box => box.word === word.toLowerCase())
                     : [];
@@ -2341,7 +2351,7 @@
                     `;
                 }
                 
-                return `
+                return Promise.resolve(`
                     <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
                         <div style="position: relative; display: inline-block;">
                             <img src="${banner.imageDataUrl}" alt="${banner.fileName}" class="banner-preview-image">
@@ -2352,39 +2362,42 @@
                             <strong>Potential Typo:</strong> "${word}" (${matchingBoxes.length} occurrence${matchingBoxes.length !== 1 ? 's' : ''})
                         </div>
                     </div>
-                `;
+                `);
             }
-        }).join('');
+        };
         
-        const navButtons = carousel.querySelector('.carousel-nav');
-        carousel.innerHTML = bannerItemsHTML;
-        carousel.appendChild(navButtons);
-        
-        dots.innerHTML = bannersWithTypo.map((_, idx) => 
-            `<div class="carousel-dot ${idx === 0 ? 'active' : ''}" onclick="goToSlide(${idx})"></div>`
-        ).join('');
-        
-        // Hide carousel controls if only one banner
-        if (bannersWithTypo.length === 1) {
-            navButtons.style.display = 'none';
-            dots.style.display = 'none';
-        } else {
-            navButtons.style.display = 'flex';
-            dots.style.display = 'flex';
-        }
-        
-        updateCarouselButtons();
-        
-        actions.innerHTML = `
-            <button class="btn btn-success" onclick="approveWordFromPreview('${word}', ${index})">
-                ✓ Correct - Not a Typo
-            </button>
-            <button class="btn btn-danger" onclick="rejectWordFromPreview('${word}', ${index})">
-                ✗ This is a Typo
-            </button>
-        `;
-        
-        modal.classList.add('active');
+        // Create all banner items (both HTML5 and static)
+        Promise.all(bannersWithTypo.map((banner, idx) => createBannerItemHTML(banner, idx))).then(bannerHTMLs => {
+            const navButtons = carousel.querySelector('.carousel-nav');
+            carousel.innerHTML = bannerHTMLs.join('');
+            carousel.appendChild(navButtons);
+            
+            dots.innerHTML = bannersWithTypo.map((_, idx) => 
+                `<div class="carousel-dot ${idx === 0 ? 'active' : ''}" onclick="goToSlide(${idx})"></div>`
+            ).join('');
+            
+            // Hide carousel controls if only one banner
+            if (bannersWithTypo.length === 1) {
+                navButtons.style.display = 'none';
+                dots.style.display = 'none';
+            } else {
+                navButtons.style.display = 'flex';
+                dots.style.display = 'flex';
+            }
+            
+            updateCarouselButtons();
+            
+            actions.innerHTML = `
+                <button class="btn btn-success" onclick="approveWordFromPreview('${word}', ${index})">
+                    ✓ Correct - Not a Typo
+                </button>
+                <button class="btn btn-danger" onclick="rejectWordFromPreview('${word}', ${index})">
+                    ✗ This is a Typo
+                </button>
+            `;
+            
+            modal.classList.add('active');
+        });
     }
 
     function showHTML5Preview(bannerIndex) {
@@ -2401,41 +2414,59 @@
         const title = document.getElementById('previewTitle');
         const actions = document.getElementById('previewActions');
         
-        const displayName = banner.zipName ? banner.zipName : banner.fileName;
-        title.textContent = `HTML5 Banner Preview: ${displayName}`;
+        // Find all HTML5 banners (not just the one clicked)
+        const html5Banners = processedBanners.filter(b => b.type === 'html5');
+        const startIndex = html5Banners.findIndex(b => b === banner);
         
-        currentCarouselBanners = [banner];
-        currentCarouselIndex = 0;
+        const displayName = banner.zipName ? banner.zipName : banner.fileName;
+        title.textContent = html5Banners.length > 1 
+            ? `HTML5 Banner Preview (${startIndex + 1} of ${html5Banners.length})`
+            : `HTML5 Banner Preview: ${displayName}`;
+        
+        currentCarouselBanners = html5Banners;
+        currentCarouselIndex = startIndex;
         
         // Get dimensions from filename or HTML
-        const dimensions = extractBannerDimensions(banner);
-        
-        // Create inline HTML with base64 encoded resources
-        createInlineHTML5(banner).then(inlineHTML => {
-            const bannerItemHTML = `
-                <div class="banner-preview-item active" data-index="0">
-                    <iframe class="banner-preview-iframe" 
-                            srcdoc="${inlineHTML.replace(/"/g, '&quot;')}"
-                            sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                            style="width: ${dimensions.width}px; height: ${dimensions.height}px;"
-                            scrolling="no">
-                    </iframe>
-                    <div class="banner-preview-name">${displayName}</div>
-                    <div style="margin-top: 12px; padding: 10px; background: #e0e7ff; border: 1px solid #6366f1; border-radius: 4px; font-size: 13px; color: #312e81;">
-                        <strong>HTML5 Banner</strong> - Animations will auto-play. Click inside to test interactions.
-                    </div>
-                </div>
-            `;
+        const createBannerHTML = (b, idx) => {
+            const dimensions = extractBannerDimensions(b);
+            const name = b.zipName ? b.zipName : b.fileName;
             
+            return createInlineHTML5(b).then(inlineHTML => {
+                return `
+                    <div class="banner-preview-item ${idx === startIndex ? 'active' : ''}" data-index="${idx}">
+                        <iframe class="banner-preview-iframe" 
+                                srcdoc="${inlineHTML.replace(/"/g, '&quot;')}"
+                                sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                                style="width: ${dimensions.width}px; height: ${dimensions.height}px;"
+                                scrolling="no">
+                        </iframe>
+                        <div class="banner-preview-name">${name}</div>
+                        <div style="margin-top: 12px; padding: 10px; background: #e0e7ff; border: 1px solid #6366f1; border-radius: 4px; font-size: 13px; color: #312e81; text-align: center;">
+                            <strong>HTML5</strong>
+                        </div>
+                    </div>
+                `;
+            });
+        };
+        
+        // Create all banner items
+        Promise.all(html5Banners.map((b, idx) => createBannerHTML(b, idx))).then(bannerHTMLs => {
             const navButtons = carousel.querySelector('.carousel-nav');
-            carousel.innerHTML = bannerItemHTML;
+            carousel.innerHTML = bannerHTMLs.join('');
             carousel.appendChild(navButtons);
             
-            dots.innerHTML = '<div class="carousel-dot active"></div>';
-            
-            // Hide carousel controls for single banner
-            navButtons.style.display = 'none';
-            dots.style.display = 'none';
+            // Show/hide carousel controls based on number of banners
+            if (html5Banners.length === 1) {
+                navButtons.style.display = 'none';
+                dots.style.display = 'none';
+            } else {
+                navButtons.style.display = 'flex';
+                dots.style.display = 'flex';
+                
+                dots.innerHTML = html5Banners.map((_, idx) => 
+                    `<div class="carousel-dot ${idx === startIndex ? 'active' : ''}" onclick="goToSlide(${idx})"></div>`
+                ).join('');
+            }
             
             updateCarouselButtons();
             
