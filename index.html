@@ -2296,6 +2296,7 @@
         const bannerItemsHTML = bannersWithTypo.map((banner, idx) => {
             if (banner.type === 'html5') {
                 // HTML5 banner preview
+                const displayName = banner.zipName ? banner.zipName : banner.fileName;
                 return `
                     <div class="banner-preview-item ${idx === 0 ? 'active' : ''}" data-index="${idx}">
                         <iframe class="banner-preview-iframe" 
@@ -2364,7 +2365,6 @@
         ).join('');
         
         // Hide carousel controls if only one banner
-        const navButtons = carousel.querySelector('.carousel-nav');
         if (bannersWithTypo.length === 1) {
             navButtons.style.display = 'none';
             dots.style.display = 'none';
