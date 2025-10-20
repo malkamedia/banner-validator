@@ -2415,7 +2415,7 @@
             const bannerItemHTML = `
                 <div class="banner-preview-item active" data-index="0">
                     <iframe class="banner-preview-iframe" 
-                            srcdoc="${escapeHtml(inlineHTML)}"
+                            srcdoc="${inlineHTML.replace(/"/g, '&quot;')}"
                             sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                             style="width: ${dimensions.width}px; height: ${dimensions.height}px;"
                             scrolling="no">
@@ -2571,15 +2571,6 @@
             width: 300,
             height: 250
         };
-    }
-    
-    function escapeHtml(html) {
-        return html
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
     }
     
     function navigateCarousel(direction) {
