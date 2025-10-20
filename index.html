@@ -2437,8 +2437,8 @@
             
             actions.innerHTML = '';
             
-            // Get dimensions from HTML or use defaults
-            const dimensions = extractBannerDimensions(banner.htmlContent);
+            // Get dimensions from filename or HTML
+            const dimensions = extractBannerDimensions(banner);
             const iframe = carousel.querySelector('.banner-preview-iframe');
             iframe.style.width = dimensions.width + 'px';
             iframe.style.height = dimensions.height + 'px';
@@ -2485,16 +2485,46 @@
         return URL.createObjectURL(htmlBlob);
     }
     
-    function extractBannerDimensions(htmlContent) {
-        // Try to extract dimensions from meta tags
-        const widthMatch = htmlContent.match(/meta.*ad\.size.*width=(\d+)/i) || 
-                          htmlContent.match(/width["\s:=]+(\d{2,4})/i);
-        const heightMatch = htmlContent.match(/meta.*ad\.size.*height=(\d+)/i) || 
-                           htmlContent.match(/height["\s:=]+(\d{2,4})/i);
+    function extractBannerDimensions(banner) {
+        // Try to extract dimensions from filename first (e.g., "300x250" or "300×250")
+        const filename = banner.zipName || banner.fileName;
+        const filenameMatch = filename.match(/(\d{2,4})[x×](\d{2,4})/i);
         
+        if (filenameMatch) {
+            return {
+                width: parseInt(filenameMatch[1]),
+                height: parseInt(filenameMatch[2])
+            };
+        }
+        
+        // Fallback: Try to extract from HTML content
+        const htmlContent = banner.htmlContent;
+        
+        // Look for meta ad.size tag
+        const metaMatch = htmlContent.match(/<meta[^>]*ad\.size[^>]*content=["']width=(\d+),\s*height=(\d+)["']/i);
+        if (metaMatch) {
+            return {
+                width: parseInt(metaMatch[1]),
+                height: parseInt(metaMatch[2])
+            };
+        }
+        
+        // Look for width and height in style
+        const styleMatch = htmlContent.match(/width:\s*(\d{2,4})px[^}]*height:\s*(\d{2,4})px/i);
+        if (styleMatch) {
+            return {
+                width: parseInt(styleMatch[1]),
+                height: parseInt(styleMatch[2])
+            };
+        }
+        
+        // If we still can't find dimensions, log a warning
+        console.warn('Could not extract banner dimensions from filename or HTML:', filename);
+        
+        // Return a common default as last resort
         return {
-            width: widthMatch ? parseInt(widthMatch[1]) : 300,
-            height: heightMatch ? parseInt(heightMatch[1]) : 250
+            width: 300,
+            height: 250
         };
     }
     
