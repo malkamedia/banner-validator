@@ -2455,8 +2455,22 @@
             for (const [filename, zipEntry] of Object.entries(banner.zipFiles)) {
                 try {
                     const blob = await zipEntry.async('blob');
-                    const url = URL.createObjectURL(blob);
+                    
+                    // Determine correct MIME type
+                    let mimeType = 'application/octet-stream';
+                    const ext = filename.split('.').pop().toLowerCase();
+                    if (ext === 'png') mimeType = 'image/png';
+                    else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+                    else if (ext === 'gif') mimeType = 'image/gif';
+                    else if (ext === 'svg') mimeType = 'image/svg+xml';
+                    else if (ext === 'js') mimeType = 'text/javascript';
+                    else if (ext === 'css') mimeType = 'text/css';
+                    
+                    const typedBlob = new Blob([blob], { type: mimeType });
+                    const url = URL.createObjectURL(typedBlob);
                     fileURLs[filename] = url;
+                    
+                    console.log(`Created blob URL for: ${filename} (${mimeType})`);
                 } catch (error) {
                     console.error(`Error creating URL for ${filename}:`, error);
                 }
@@ -2466,19 +2480,38 @@
         // Update HTML content to use blob URLs
         let updatedHTML = banner.htmlContent;
         
-        // Replace relative paths with blob URLs
+        // Replace all file references with blob URLs
         for (const [filename, url] of Object.entries(fileURLs)) {
+            // Escape special characters in filename for regex
             const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            // Match various quote styles and formats
+            
+            // Replace various patterns:
+            // 1. src="filename" or src='filename' or src=`filename`
+            updatedHTML = updatedHTML.replace(
+                new RegExp(`(src=)(['"\`])${escapedFilename}\\2`, 'gi'),
+                `$1"${url}"`
+            );
+            
+            // 2. href="filename" or href='filename' or href=`filename`
+            updatedHTML = updatedHTML.replace(
+                new RegExp(`(href=)(['"\`])${escapedFilename}\\2`, 'gi'),
+                `$1"${url}"`
+            );
+            
+            // 3. url(filename) or url("filename") or url('filename')
+            updatedHTML = updatedHTML.replace(
+                new RegExp(`url\\((['"\`]?)${escapedFilename}\\1\\)`, 'gi'),
+                `url("${url}")`
+            );
+            
+            // 4. Plain filename in quotes (catches any missed references)
             updatedHTML = updatedHTML.replace(
                 new RegExp(`(['"\`])${escapedFilename}\\1`, 'g'),
-                `'${url}'`
-            );
-            updatedHTML = updatedHTML.replace(
-                new RegExp(`(src|href)=(['"\`])${escapedFilename}\\2`, 'gi'),
-                `$1='${url}'`
+                `"${url}"`
             );
         }
+        
+        console.log('Updated HTML with blob URLs');
         
         // Create blob for the updated HTML
         const htmlBlob = new Blob([updatedHTML], { type: 'text/html' });
