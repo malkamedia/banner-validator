@@ -2407,13 +2407,17 @@
         currentCarouselBanners = [banner];
         currentCarouselIndex = 0;
         
-        // Create a blob URL for the HTML content with embedded resources
-        createHTML5BlobURL(banner).then(blobURL => {
+        // Get dimensions from filename or HTML
+        const dimensions = extractBannerDimensions(banner);
+        
+        // Create inline HTML with base64 encoded resources
+        createInlineHTML5(banner).then(inlineHTML => {
             const bannerItemHTML = `
                 <div class="banner-preview-item active" data-index="0">
                     <iframe class="banner-preview-iframe" 
-                            src="${blobURL}"
+                            srcdoc="${escapeHtml(inlineHTML)}"
                             sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                            style="width: ${dimensions.width}px; height: ${dimensions.height}px;"
                             scrolling="no">
                     </iframe>
                     <div class="banner-preview-name">${displayName}</div>
@@ -2437,19 +2441,13 @@
             
             actions.innerHTML = '';
             
-            // Get dimensions from filename or HTML
-            const dimensions = extractBannerDimensions(banner);
-            const iframe = carousel.querySelector('.banner-preview-iframe');
-            iframe.style.width = dimensions.width + 'px';
-            iframe.style.height = dimensions.height + 'px';
-            
             modal.classList.add('active');
         });
     }
-    
-    async function createHTML5BlobURL(banner) {
-        // Create object URLs for all files in the ZIP
-        const fileURLs = {};
+
+    async function createInlineHTML5(banner) {
+        // Convert all files to base64 data URIs
+        const fileDataURIs = {};
         
         if (banner.zipFiles) {
             for (const [filename, zipEntry] of Object.entries(banner.zipFiles)) {
@@ -2466,56 +2464,51 @@
                     else if (ext === 'js') mimeType = 'text/javascript';
                     else if (ext === 'css') mimeType = 'text/css';
                     
-                    const typedBlob = new Blob([blob], { type: mimeType });
-                    const url = URL.createObjectURL(typedBlob);
-                    fileURLs[filename] = url;
+                    // Convert to base64
+                    const reader = new FileReader();
+                    const base64 = await new Promise((resolve) => {
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.readAsDataURL(blob);
+                    });
                     
-                    console.log(`Created blob URL for: ${filename} (${mimeType})`);
+                    fileDataURIs[filename] = base64;
+                    console.log(`Created data URI for: ${filename}`);
                 } catch (error) {
-                    console.error(`Error creating URL for ${filename}:`, error);
+                    console.error(`Error creating data URI for ${filename}:`, error);
                 }
             }
         }
         
-        // Update HTML content to use blob URLs
+        // Update HTML content to use data URIs
         let updatedHTML = banner.htmlContent;
         
-        // Replace all file references with blob URLs
-        for (const [filename, url] of Object.entries(fileURLs)) {
+        // Replace all file references with data URIs
+        for (const [filename, dataURI] of Object.entries(fileDataURIs)) {
             // Escape special characters in filename for regex
             const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             
             // Replace various patterns:
-            // 1. src="filename" or src='filename' or src=`filename`
+            // 1. src="filename" or src='filename'
             updatedHTML = updatedHTML.replace(
-                new RegExp(`(src=)(['"\`])${escapedFilename}\\2`, 'gi'),
-                `$1"${url}"`
+                new RegExp(`(src=)(['"])${escapedFilename}\\2`, 'gi'),
+                `$1"${dataURI}"`
             );
             
-            // 2. href="filename" or href='filename' or href=`filename`
+            // 2. href="filename" or href='filename' (for CSS)
             updatedHTML = updatedHTML.replace(
-                new RegExp(`(href=)(['"\`])${escapedFilename}\\2`, 'gi'),
-                `$1"${url}"`
+                new RegExp(`(href=)(['"])${escapedFilename}\\2`, 'gi'),
+                `$1"${dataURI}"`
             );
             
-            // 3. url(filename) or url("filename") or url('filename')
+            // 3. url(filename) or url("filename") in CSS
             updatedHTML = updatedHTML.replace(
-                new RegExp(`url\\((['"\`]?)${escapedFilename}\\1\\)`, 'gi'),
-                `url("${url}")`
-            );
-            
-            // 4. Plain filename in quotes (catches any missed references)
-            updatedHTML = updatedHTML.replace(
-                new RegExp(`(['"\`])${escapedFilename}\\1`, 'g'),
-                `"${url}"`
+                new RegExp(`url\\((['"]?)${escapedFilename}\\1\\)`, 'gi'),
+                `url("${dataURI}")`
             );
         }
         
-        console.log('Updated HTML with blob URLs');
-        
-        // Create blob for the updated HTML
-        const htmlBlob = new Blob([updatedHTML], { type: 'text/html' });
-        return URL.createObjectURL(htmlBlob);
+        console.log('HTML updated with base64 data URIs');
+        return updatedHTML;
     }
     
     function extractBannerDimensions(banner) {
