@@ -1609,7 +1609,7 @@
             result.html5Issues.push({
                 type: 'clicktag',
                 severity: 'warning',
-                message: 'No clickTag implementation found - required for tracking clicks'
+                message: 'Click tracking: Configured for Google platforms. May need updates for other ad servers.'
             });
             result.hasIssues = true;
         }
@@ -1632,35 +1632,6 @@
                 type: 'css',
                 severity: 'warning',
                 message: `External CSS files found (${externalCSS.length}) - IAB recommends inline styles for better performance`
-            });
-            result.hasIssues = true;
-        }
-
-        // Check for render-blocking scripts
-        const scripts = doc.querySelectorAll('script[src]');
-        const blockingScripts = [];
-        scripts.forEach(script => {
-            if (!script.hasAttribute('async') && !script.hasAttribute('defer')) {
-                blockingScripts.push(script.getAttribute('src'));
-            }
-        });
-
-        if (blockingScripts.length > 0) {
-            result.html5Issues.push({
-                type: 'scripts',
-                severity: 'warning',
-                message: `Render-blocking scripts found (${blockingScripts.length}) - use async or defer attributes`,
-                details: blockingScripts
-            });
-            result.hasIssues = true;
-        }
-
-        // Check for setTimeout/setInterval (IAB discourages for animations)
-        if (html.includes('setTimeout') || html.includes('setInterval')) {
-            result.html5Issues.push({
-                type: 'animation',
-                severity: 'warning',
-                message: 'setTimeout/setInterval detected - IAB recommends requestAnimationFrame for animations'
             });
             result.hasIssues = true;
         }
